@@ -1,53 +1,52 @@
 package lb
 
 import (
-	"fmt"
 	rpc_commons "git.chunyu.me/infra/rpc_commons"
-	config "git.chunyu.me/infra/rpc_proxy/config"
-	lb "git.chunyu.me/infra/rpc_proxy/lb"
 	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
-	"git.chunyu.me/infra/rpc_proxy/utils/bytesize"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
-	"github.com/docopt/docopt-go"
-	color "github.com/fatih/color"
 	zmq "github.com/pebbe/zmq4"
-	topozk "github.com/wandoulabs/go-zookeeper/zk"
+
 	"os"
 	"os/signal"
-	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
 
 const (
-	HEARTBEAT_LIVENESS = 3                       //  3-5 is reasonable
-	HEARTBEAT_INTERVAL = 1000 * time.Millisecond //  msecs
+	PPP_READY_BYTE     = uint8('\x01') // 通知lb, Worker Ready
+	PPP_HEARTBEAT_BYTE = uint8('\x02') // 通知lb, Worker 还活着
+	PPP_HEARTBEAT_STR  = "\x02"
+	PPP_STOP_BYTE      = uint8('\x03') // 通知lb, Worker 即将关闭，如果有什么Event请不要再分配了
 
-	PPP_READY         = uint8('\x01') // 通知lb, Worker Ready
-	PPP_HEARTBEAT     = uint8('\x02') // 通知lb, Worker 还活着
-	PPP_HEARTBEAT_STR = "\x02"
-	PPP_STOP          = uint8('\x03') // 通知lb, Worker 即将关闭，如果有什么Event请不要再分配了
-
-	VERSION = "\x01" //  当前协议的版本
 )
 
 type LoadBalanceServer struct {
 	ProductName  string
+	ServiceName  string
 	FrontendAddr string
 	BackendAddr  string
+	ZkAddr       string
+	Verbose      bool
 }
 
-func NewLoadBalanceServer() *LoadBalanceServer {
-
+func NewLoadBalanceServer(config *utils.Config) *LoadBalanceServer {
+	server := &LoadBalanceServer{
+		ProductName:  config.ProductName,
+		ServiceName:  config.Service,
+		FrontendAddr: config.FrontendAddr,
+		BackendAddr:  config.BackAddr,
+		ZkAddr:       config.ZkAddr,
+		Verbose:      config.Verbose,
+	}
+	return server
 }
 
 func (p *LoadBalanceServer) Run() {
 	// 1. 创建到zk的连接
 	var topo *zk.Topology
-	topo = zk.NewTopology(p.ProductName, zkAddr)
+	topo = zk.NewTopology(p.ProductName, p.ZkAddr)
 
 	// 2. 启动服务
 	frontend, _ := zmq.NewSocket(zmq.ROUTER)
@@ -58,16 +57,16 @@ func (p *LoadBalanceServer) Run() {
 	// ROUTER/ROUTER绑定到指定的端口
 
 	// tcp://127.0.0.1:5555 --> tcp://127_0_0_1:5555
-	lbServiceName := GetServiceIdentity(p.FrontendAddr)
+	lbServiceName := rpc_commons.GetServiceIdentity(p.FrontendAddr)
 
 	frontend.SetIdentity(lbServiceName)
-	frontend.Bind(frontendAddr) //  For clients "tcp://*:5555"
-	backend.Bind(backendAddr)   //  For workers "tcp://*:5556"
+	frontend.Bind(p.FrontendAddr) //  For clients "tcp://*:5555"
+	backend.Bind(p.BackendAddr)   //  For workers "tcp://*:5556"
 
-	log.Printf("FrontAddr: %s, BackendAddr: %s\n", magenta(frontendAddr), magenta(backendAddr))
+	log.Printf("FrontAddr: %s, BackendAddr: %s\n", rpc_commons.Magenta(p.FrontendAddr), rpc_commons.Magenta(p.BackendAddr))
 
 	// 后端的workers queue
-	workersQueue := queue.NewPPQueue()
+	workersQueue := NewPPQueue()
 
 	// 心跳间隔1s
 	heartbeat_at := time.Tick(HEARTBEAT_INTERVAL)
@@ -83,44 +82,10 @@ func (p *LoadBalanceServer) Run() {
 	poller2.Add(backend, zmq.POLLIN)
 	poller2.Add(frontend, zmq.POLLIN)
 
-	// 3. 注册zk
-	var endpointInfo map[string]interface{} = make(map[string]interface{})
-	endpointInfo["frontend"] = frontendAddr
-	endpointInfo["backend"] = backendAddr
-
-	topo.AddServiceEndPoint(serviceName, lbServiceName, endpointInfo)
-
 	isAlive := true
-	isAliveLock := &sync.RWMutex{}
-
-	go func() {
-		servicePath := topo.ProductServicePath(serviceName)
-		evtbus := make(chan interface{})
-		for true {
-			// 只是为了监控状态
-			_, err := topo.WatchNode(servicePath, evtbus)
-
-			if err == nil {
-				// 等待事件
-				e := (<-evtbus).(topozk.Event)
-				if e.State == topozk.StateExpired || e.Type == topozk.EventNotWatching {
-					// Session过期了，则需要删除之前的数据，因为这个数据的Owner不是当前的Session
-					topo.DeleteServiceEndPoint(serviceName, lbServiceName)
-					topo.AddServiceEndPoint(serviceName, lbServiceName, endpointInfo)
-				}
-			} else {
-				time.Sleep(time.Second)
-			}
-
-			isAliveLock.RLock()
-			isAlive1 := isAlive
-			isAliveLock.RUnlock()
-			if !isAlive1 {
-				break
-			}
-
-		}
-	}()
+	// 注册服务
+	evtExit := make(chan interface{})
+	rpc_commons.RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, topo, evtExit)
 
 	ch := make(chan os.Signal, 1)
 
@@ -131,8 +96,6 @@ func (p *LoadBalanceServer) Run() {
 	//
 
 	// 自动退出条件:
-	//
-
 	var suideTime time.Time
 
 	for {
@@ -141,6 +104,7 @@ func (p *LoadBalanceServer) Run() {
 
 		sockets, err = poller2.Poll(HEARTBEAT_INTERVAL)
 		if err != nil {
+			// TODO: 似乎Poller自己会监听kill -15等信号，如何处理呢?
 			//			break //  Interrupted
 			log.Errorf("Error When Pollling: %v\n", err)
 			continue
@@ -161,7 +125,7 @@ func (p *LoadBalanceServer) Run() {
 					log.Errorf("Error When RecvMessage from background: %v\n", err)
 					continue
 				}
-				if config.VERBOSE {
+				if p.Verbose {
 					// log.Println("Message from backend: ", msgs)
 				}
 				// 消息类型:
@@ -172,19 +136,19 @@ func (p *LoadBalanceServer) Run() {
 				// rpc_control_data 控制信息
 				// msgs: <rpc_control_data>
 				if len(msgs) == 1 {
-					// PPP_READY
-					// PPP_HEARTBEAT
+					// PPP_READY_BYTE
+					// PPP_HEARTBEAT_BYTE
 					controlMsg := msgs[0]
 
 					// 碰到无效的信息，则直接跳过去
 					if len(controlMsg) == 0 {
 						continue
 					}
-					if config.VERBOSE {
+					if p.Verbose {
 						// log.Println("Got Message From Backend...")
 					}
 
-					if controlMsg[0] == PPP_READY || controlMsg[0] == PPP_HEARTBEAT {
+					if controlMsg[0] == PPP_READY_BYTE || controlMsg[0] == PPP_HEARTBEAT_BYTE {
 						// 后端服务剩余的并发能力
 						var concurrency int
 						if len(controlMsg) >= 3 {
@@ -192,13 +156,13 @@ func (p *LoadBalanceServer) Run() {
 						} else {
 							concurrency = 1
 						}
-						if config.VERBOSE {
+						if p.Verbose {
 							// utils.PrintZeromqMsgs(msgs, "control msg")
 						}
 
-						force_update := controlMsg[0] == PPP_READY
+						force_update := controlMsg[0] == PPP_READY_BYTE
 						workersQueue.UpdateWorkerStatus(worker_id, concurrency, force_update)
-					} else if controlMsg[0] == PPP_STOP {
+					} else if controlMsg[0] == PPP_STOP_BYTE {
 						// 停止指定的后端服务
 						workersQueue.UpdateWorkerStatus(worker_id, -1, true)
 					} else {
@@ -223,7 +187,7 @@ func (p *LoadBalanceServer) Run() {
 
 				// msgs:
 				// <proxy_id, "", client_id, "", rpc_data>
-				if config.VERBOSE {
+				if p.Verbose {
 					utils.PrintZeromqMsgs(msgs, "frontend")
 				}
 				msgs = utils.TrimLeftEmptyMsg(msgs)
@@ -231,13 +195,13 @@ func (p *LoadBalanceServer) Run() {
 				// 将msgs交给后端服务器
 				worker := workersQueue.NextWorker()
 				if worker != nil {
-					if config.VERBOSE {
+					if p.Verbose {
 						log.Println("Send Msg to Backend worker: ", worker.Identity)
 					}
 					backend.SendMessage(worker.Identity, "", msgs)
 				} else {
 					// 怎么返回错误消息呢?
-					if config.VERBOSE {
+					if p.Verbose {
 						log.Println("No backend worker found")
 					}
 					errMsg := proxy.GetWorkerNotFoundData("account", 0)
@@ -249,11 +213,7 @@ func (p *LoadBalanceServer) Run() {
 		}
 
 		// 如果安排的suiside, 则需要处理 suiside的时间
-		isAliveLock.RLock()
-		isAlive1 := isAlive
-		isAliveLock.RUnlock()
-
-		if !isAlive1 {
+		if !isAlive {
 			if hasValidMsg {
 				suideTime = time.Now().Add(time.Second * 3)
 			} else {
@@ -279,16 +239,13 @@ func (p *LoadBalanceServer) Run() {
 
 			workersQueue.PurgeExpired()
 		case sig := <-ch:
-			isAliveLock.Lock()
-			isAlive1 := isAlive
-			isAlive = false
-			isAliveLock.Unlock()
 
-			if isAlive1 {
+			if isAlive {
+				isAlive = false
+				evtExit <- true
 				// 准备退出(但是需要处理完毕手上的活)
-
 				// 需要退出:
-				topo.DeleteServiceEndPoint(serviceName, lbServiceName)
+				topo.DeleteServiceEndPoint(p.ServiceName, lbServiceName)
 
 				if sig == syscall.SIGKILL {
 					log.Println(utils.Red("Got Kill Signal, Return Directly"))

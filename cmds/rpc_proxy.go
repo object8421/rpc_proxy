@@ -1,15 +1,13 @@
 package main
 
 import (
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/bytesize"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/docopt/docopt-go"
-
 	"os"
-
-	rpc_commons "git.chunyu.me/infra/rpc_commons"
 )
 
 const (

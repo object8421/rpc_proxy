@@ -4,25 +4,13 @@
 package main
 
 import (
-	"fmt"
 	rpc_commons "git.chunyu.me/infra/rpc_commons"
-	config "git.chunyu.me/infra/rpc_proxy/config"
 	lb "git.chunyu.me/infra/rpc_proxy/lb"
-	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/bytesize"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
-	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"github.com/docopt/docopt-go"
-	color "github.com/fatih/color"
-	zmq "github.com/pebbe/zmq4"
-	topozk "github.com/wandoulabs/go-zookeeper/zk"
 	"os"
-	"os/signal"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
 )
 
 var usage = `usage: rpc_lb -c <config_file> [-L <log_file>] [--log-level=<loglevel>] [--log-filesize=<filesize>] 
@@ -65,7 +53,7 @@ func main() {
 
 	// set log level
 	if s, ok := args["--log-level"].(string); ok && s != "" {
-		setLogLevel(s)
+		rpc_commons.SetLogLevel(s)
 	}
 
 	// set config file
@@ -74,12 +62,6 @@ func main() {
 	if err != nil {
 		log.PanicErrorf(err, "load config failed")
 	}
-
-	backendAddr = conf.BackAddr
-	serviceName = conf.Service
-
-	zkAddr = conf.ZkAddr
-	config.VERBOSE = conf.Verbose
 
 	if conf.ProductName == "" {
 		// 既没有config指定，也没有命令行指定，则报错
@@ -90,11 +72,11 @@ func main() {
 		log.PanicErrorf(err, "Invalid zookeeper address")
 	}
 
-	if conf.ServiceName == "" {
+	if conf.Service == "" {
 		log.PanicErrorf(err, "Invalid ServiceName")
 	}
 
-	if conf.BackendAddr == "" {
+	if conf.BackAddr == "" {
 		log.PanicErrorf(err, "Invalid backend address")
 	}
 	if conf.FrontendAddr == "" {
