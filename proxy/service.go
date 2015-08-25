@@ -132,29 +132,28 @@ func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology, 
 	servicesPath := topo.ProductServicesPath()
 	path, e1 := topo.CreateDir(servicesPath) // 保证Service目录存在，否则会报错
 	fmt.Println("Path: ", path, "error: ", e1)
-	services, err := topo.WatchChildren(servicesPath, evtbus)
-	if err != nil {
-		log.Println("Error: ", err)
-		// TODO: 这个地方需要优化
-		panic("Reading Service List Failed")
-	}
 
 	go func() {
 		for true {
+			services, err := topo.WatchChildren(servicesPath, evtbus)
 
-			result.Lock()
-			for _, service := range services {
-				log.Println("Service: ", service)
-				if _, ok := result.Services[service]; !ok {
-					result.addBackService(service)
+			if err != nil {
+				// 保证数据更新是有效的
+				result.Lock()
+				for _, service := range services {
+					log.Println("Service: ", service)
+					if _, ok := result.Services[service]; !ok {
+						result.addBackService(service)
+					}
 				}
-			}
-			result.Unlock()
+				result.Unlock()
 
-			// 等待事件
-			<-evtbus
-			// 读取数据，继续监听(连接过期了就过期了，再次Watch即可)
-			services, err = topo.WatchChildren(servicesPath, evtbus)
+				// 等待事件
+				<-evtbus
+			} else {
+				log.ErrorErrorf(err, "zk watch error: %s, error: %v\n", servicesPath, err)
+				time.Sleep(time.Duration(5) * time.Second)
+			}
 		}
 	}()
 
