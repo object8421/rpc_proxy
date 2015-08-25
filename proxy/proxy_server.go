@@ -2,11 +2,10 @@ package proxy
 
 import (
 	"fmt"
-	config "git.chunyu.me/infra/rpc_proxy/config"
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
-	zk "git.chunyu.me/infra/rpc_proxy/zk"
-	//	color "github.com/fatih/color"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	zmq "github.com/pebbe/zmq4"
 	"strings"
 	"time"
@@ -16,12 +15,12 @@ const (
 	HEARTBEAT_INTERVAL = 1000 * time.Millisecond
 )
 
-//Magenta := color.New(color.FgMagenta).SprintFunc()
-
 type ProxyServer struct {
 	ProductName  string
 	FrontendAddr string
 	ZkAdresses   string
+	Verbose      bool
+	Profile      bool
 }
 
 func NewProxyServer(config *utils.Config) *ProxyServer {
@@ -29,6 +28,8 @@ func NewProxyServer(config *utils.Config) *ProxyServer {
 		ProductName:  config.ProductName,
 		FrontendAddr: config.FrontendAddr,
 		ZkAdresses:   config.ZkAddr,
+		Verbose:      config.Verbose,
+		Profile:      config.Profile,
 	}
 	return server
 }
@@ -43,14 +44,14 @@ func (p *ProxyServer) Run() {
 
 	// 3. 读取后端服务的配置
 	poller := zmq.NewPoller()
-	backServices := NewBackServices(poller, p.ProductName, topo)
+	backServices := NewBackServices(poller, p.ProductName, topo, p.Verbose)
 
 	// 4. 创建前端服务
 	frontend, _ := zmq.NewSocket(zmq.ROUTER)
 	defer frontend.Close()
 
 	// ROUTER/ROUTER绑定到指定的端口
-	//	log.Println("---->Bind: ", Magenta(p.FrontAddress))
+	log.Println("---->Bind: ", rpc_commons.Magenta(p.FrontendAddr))
 	frontend.Bind(p.FrontendAddr) //  For clients
 
 	// 开始监听前端服务
@@ -71,7 +72,7 @@ func (p *ProxyServer) Run() {
 			switch socket.Socket {
 
 			case frontend:
-				if config.VERBOSE {
+				if p.Verbose {
 					log.Println("----->Message from front: ")
 				}
 				msgs, err := frontend.RecvMessage(0)
@@ -109,17 +110,17 @@ func (p *ProxyServer) Run() {
 
 				} else {
 					// <"", client_id, "", msgs>
-					if config.PROFILE {
+					if p.Profile {
 						lastMsg := msgs[len(msgs)-1]
 						msgs = msgs[0 : len(msgs)-1]
 						msgs = append(msgs, fmt.Sprintf("%.4f", float64(time.Now().UnixNano())*1e-9), "", lastMsg)
-						if config.VERBOSE {
+						if p.Verbose {
 							log.Println(printList(msgs))
 						}
 					}
 					total, err, errMsg := backService.HandleRequest(client_id, msgs)
 					if errMsg != nil {
-						if config.VERBOSE {
+						if p.Verbose {
 							log.Println("backService Error for service: ", service)
 						}
 						if len(msgs) > 1 {
@@ -138,7 +139,7 @@ func (p *ProxyServer) Run() {
 					log.Println("Encounter Errors When receiving from background")
 					continue //  Interrupted
 				}
-				if config.VERBOSE {
+				if p.Verbose {
 					utils.PrintZeromqMsgs(msgs, "proxy")
 				}
 
@@ -150,12 +151,12 @@ func (p *ProxyServer) Run() {
 					// 告知后端的服务可能有问题
 
 				} else {
-					if config.PROFILE {
+					if p.Profile {
 						lastMsg := msgs[len(msgs)-1]
 						msgs = msgs[0 : len(msgs)-1]
 						msgs = append(msgs, fmt.Sprintf("%.4f", float64(time.Now().UnixNano())*1e-9), "", lastMsg)
 					}
-					if config.VERBOSE {
+					if p.Verbose {
 						log.Println(printList(msgs))
 					}
 					frontend.SendMessage(msgs)

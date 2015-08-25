@@ -1,10 +1,10 @@
-package queue
+package lb
 
 import (
 	"container/heap"
 	"fmt"
-	color "github.com/fatih/color"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	color "github.com/fatih/color"
 	"time"
 )
 

@@ -2,11 +2,10 @@ package proxy
 
 import (
 	"fmt"
-	zmq "github.com/pebbe/zmq4"
-	config "git.chunyu.me/infra/rpc_proxy/config"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
+	zmq "github.com/pebbe/zmq4"
 	"sync"
 	"time"
 )
@@ -18,10 +17,11 @@ type BackService struct {
 	backend *BackSockets
 	poller  *zmq.Poller
 	topo    *zk.Topology
+	Verbose bool
 }
 
 // 创建一个BackService
-func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology) *BackService {
+func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology, verbose bool) *BackService {
 
 	backSockets := NewBackSockets(poller)
 
@@ -30,6 +30,7 @@ func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology) *
 		backend:     backSockets,
 		poller:      poller,
 		topo:        topo,
+		Verbose:     verbose,
 	}
 
 	var evtbus chan interface{} = make(chan interface{}, 2)
@@ -87,13 +88,13 @@ func (s *BackService) HandleRequest(client_id string, msgs []string) (total int,
 	if backSocket == nil {
 		// 没有后端服务
 
-		if config.VERBOSE {
+		if s.Verbose {
 			log.Println(utils.Red("No BackSocket Found for service:"), s.ServiceName)
 		}
 		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)
 		return 0, nil, &errMsg
 	} else {
-		if config.VERBOSE {
+		if s.Verbose {
 			log.Println("SendMessage With: ", backSocket.Addr, "For Service: ", s.ServiceName)
 		}
 		total, err = backSocket.SendMessage("", client_id, "", msgs)
@@ -111,9 +112,11 @@ type BackServices struct {
 
 	poller *zmq.Poller
 	topo   *zk.Topology
+
+	Verbose bool
 }
 
-func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology) *BackServices {
+func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology, verbose bool) *BackServices {
 
 	// 创建BackServices
 	result := &BackServices{
@@ -121,6 +124,7 @@ func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology) 
 		OfflineServices: make(map[string]*BackService),
 		poller:          poller,
 		topo:            topo,
+		Verbose:         verbose,
 	}
 
 	var evtbus chan interface{} = make(chan interface{}, 2)
@@ -164,7 +168,7 @@ func (bk *BackServices) addBackService(service string) {
 
 	backService, ok := bk.Services[service]
 	if !ok {
-		backService = NewBackService(service, bk.poller, bk.topo)
+		backService = NewBackService(service, bk.poller, bk.topo, bk.Verbose)
 		bk.Services[service] = backService
 	}
 

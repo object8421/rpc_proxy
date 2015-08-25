@@ -1,4 +1,4 @@
-package queue
+package lb
 
 import (
 	"container/heap"

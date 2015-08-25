@@ -1,21 +1,19 @@
-//
-//  Paranoid Pirate queue. 参考: http://zguide.zeromq.org/php:chapter4
-//
-package main
+package lb
 
 import (
 	"fmt"
-	"github.com/docopt/docopt-go"
-	color "github.com/fatih/color"
-	zmq "github.com/pebbe/zmq4"
-	topozk "github.com/wandoulabs/go-zookeeper/zk"
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	config "git.chunyu.me/infra/rpc_proxy/config"
+	lb "git.chunyu.me/infra/rpc_proxy/lb"
 	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
-	queue "git.chunyu.me/infra/rpc_proxy/queue"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/bytesize"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
+	"github.com/docopt/docopt-go"
+	color "github.com/fatih/color"
+	zmq "github.com/pebbe/zmq4"
+	topozk "github.com/wandoulabs/go-zookeeper/zk"
 	"os"
 	"os/signal"
 	"strings"
@@ -36,141 +34,20 @@ const (
 	VERSION = "\x01" //  当前协议的版本
 )
 
-var magenta = color.New(color.FgMagenta).SprintFunc()
-
-var usage = `usage: rpc_lb [-c <config_file>] [--product=<product-name>]  [--zk=<zookeeper-address>] [--service=<service-name>] [--faddr=<frontend-address>] [--baddr=<backend-address>] [-L <log_file>] [--log-level=<loglevel>] [--log-filesize=<filesize>] 
-
-options:
-   -c <config_file>
-   --zk=<zookeeper-address>
-   --product=<product-name>
-   --service=<service-name>
-   --faddr=<backend-address> backend address: tcp://127.0.0.1:5555
-   --baddr=<frontend-address> frontend address: tcp://127.0.0.1:5556
-   -L	set output log file, default is stdout
-   --log-level=<loglevel>	set log level: info, warn, error, debug [default: info]
-   --log-filesize=<maxsize>  set max log file size, suffixes "KB", "MB", "GB" are allowed, 1KB=1024 bytes, etc. Default is 1GB.
-`
-
-//
-// Load Balance如何运维呢?
-// 1. 在服务提供方，会会启动Load Balance, 它只负责本机器的某个指定服务的lb
-// 2. 正常情况下，不能被轻易杀死
-// 3. 需要考虑 graceful stop, 在死之前告知所有的proxy，如何告知呢? TODO
-//
-//
-func main() {
-	args, err := docopt.Parse(usage, nil, true, "Chunyu RPC Load Balance v0.1", true)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	var maxFileFrag = 2
-	var maxFragSize int64 = bytesize.GB * 1
-	if s, ok := args["--log-filesize"].(string); ok && s != "" {
-		v, err := bytesize.Parse(s)
-		if err != nil {
-			log.PanicErrorf(err, "invalid max log file size = %s", s)
-		}
-		maxFragSize = v
-	}
-
-	// set output log file
-	if s, ok := args["-L"].(string); ok && s != "" {
-		f, err := log.NewRollingFile(s, maxFileFrag, maxFragSize)
-		if err != nil {
-			log.PanicErrorf(err, "open rolling log file failed: %s", s)
-		} else {
-			defer f.Close()
-			log.StdLog = log.New(f, "")
-		}
-	}
-	log.SetLevel(log.LEVEL_INFO)
-	log.SetFlags(log.Flags() | log.Lshortfile)
-
-	// set log level
-	if s, ok := args["--log-level"].(string); ok && s != "" {
-		setLogLevel(s)
-	}
-	var backendAddr, frontendAddr, zkAddr, productName, serviceName string
-
-	// set config file
-	if args["-c"] != nil {
-		configFile := args["-c"].(string)
-		conf, err := utils.LoadConf(configFile)
-		if err != nil {
-			log.PanicErrorf(err, "load config failed")
-		}
-		productName = conf.ProductName
-
-		if conf.FrontHost == "" {
-			fmt.Println("FrontHost: ", conf.FrontHost, ", Prefix: ", conf.IpPrefix)
-			if conf.IpPrefix != "" {
-				conf.FrontHost = utils.GetIpWithPrefix(conf.IpPrefix)
-			}
-		}
-		if conf.FrontPort != "" && conf.FrontHost != "" {
-			frontendAddr = fmt.Sprintf("tcp://%s:%s", conf.FrontHost, conf.FrontPort)
-		}
-
-		backendAddr = conf.BackAddr
-		serviceName = conf.Service
-
-		zkAddr = conf.ZkAddr
-		config.VERBOSE = conf.Verbose
-
-	} else {
-		productName = ""
-		zkAddr = ""
-	}
-
-	if s, ok := args["--product"].(string); ok && s != "" {
-		productName = s
-	} else if productName == "" {
-		// 既没有config指定，也没有命令行指定，则报错
-		log.PanicErrorf(err, "Invalid ProductName: %s", s)
-	}
-
-	if s, ok := args["--zk"].(string); ok && s != "" {
-		zkAddr = s
-	} else if zkAddr == "" {
-		log.PanicErrorf(err, "Invalid zookeeper address: %s", s)
-	}
-
-	if s, ok := args["--service"].(string); ok && s != "" {
-		serviceName = s
-	} else if serviceName == "" {
-		log.PanicErrorf(err, "Invalid ServiceName: %s", s)
-	}
-
-	if s, ok := args["--baddr"].(string); ok && s != "" {
-		backendAddr = s
-	} else if backendAddr == "" {
-		log.PanicErrorf(err, "Invalid backend address: %s", s)
-	}
-	if s, ok := args["--faddr"].(string); ok && s != "" {
-		frontendAddr = s
-	} else if frontendAddr == "" {
-		//
-		log.PanicErrorf(err, "Invalid frontend address: %s", s)
-	}
-
-	// 正式的服务
-	mainBody(zkAddr, productName, serviceName, frontendAddr, backendAddr)
+type LoadBalanceServer struct {
+	ProductName  string
+	FrontendAddr string
+	BackendAddr  string
 }
 
-// tcp://127.0.0.1:5555 --> tcp://127_0_0_1:5555
-func GetServiceIdentity(frontendAddr string) string {
-	fid := strings.Replace(frontendAddr, ".", "_", -1)
-	fid = strings.Replace(fid, ":", "_", -1)
-	fid = strings.Replace(fid, "//", "", -1)
-	return fid
+func NewLoadBalanceServer() *LoadBalanceServer {
+
 }
 
-func mainBody(zkAddr string, productName string, serviceName string, frontendAddr string, backendAddr string) {
+func (p *LoadBalanceServer) Run() {
 	// 1. 创建到zk的连接
 	var topo *zk.Topology
-	topo = zk.NewTopology(productName, zkAddr)
+	topo = zk.NewTopology(p.ProductName, zkAddr)
 
 	// 2. 启动服务
 	frontend, _ := zmq.NewSocket(zmq.ROUTER)
@@ -181,7 +58,7 @@ func mainBody(zkAddr string, productName string, serviceName string, frontendAdd
 	// ROUTER/ROUTER绑定到指定的端口
 
 	// tcp://127.0.0.1:5555 --> tcp://127_0_0_1:5555
-	lbServiceName := GetServiceIdentity(frontendAddr)
+	lbServiceName := GetServiceIdentity(p.FrontendAddr)
 
 	frontend.SetIdentity(lbServiceName)
 	frontend.Bind(frontendAddr) //  For clients "tcp://*:5555"
@@ -423,36 +300,5 @@ func mainBody(zkAddr string, productName string, serviceName string, frontendAdd
 			}
 		default:
 		}
-	}
-}
-
-func init() {
-	log.SetLevel(log.LEVEL_INFO)
-}
-
-func setLogLevel(level string) {
-	var lv = log.LEVEL_INFO
-	switch strings.ToLower(level) {
-	case "error":
-		lv = log.LEVEL_ERROR
-	case "warn", "warning":
-		lv = log.LEVEL_WARN
-	case "debug":
-		lv = log.LEVEL_DEBUG
-	case "info":
-		fallthrough
-	default:
-		lv = log.LEVEL_INFO
-	}
-	log.SetLevel(lv)
-	log.Infof("set log level to %s", lv)
-}
-
-func setCrashLog(file string) {
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.InfoErrorf(err, "cannot open crash log file: %s", file)
-	} else {
-		syscall.Dup2(int(f.Fd()), 2)
 	}
 }

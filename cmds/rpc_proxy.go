@@ -1,7 +1,6 @@
 package main
 
 import (
-	config "git.chunyu.me/infra/rpc_proxy/config"
 	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/bytesize"
@@ -73,8 +72,6 @@ func main() {
 	if err != nil {
 		log.PanicErrorf(err, "load config failed")
 	}
-	config.VERBOSE = conf.Verbose
-	config.PROFILE = conf.Profile
 
 	if conf.ProductName == "" {
 		log.PanicErrorf(err, "Invalid ProductName")
