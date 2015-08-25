@@ -129,7 +129,7 @@ func (p *ProxyServer) Run() {
 							frontend.SendMessage(client_id, "", *errMsg)
 						}
 					} else if err != nil {
-						log.Println(utils.Red("backService.HandleRequest Error: "), err, ", Total: ", total)
+						log.Println(rpc_commons.Red("backService.HandleRequest Error: "), err, ", Total: ", total)
 					}
 				}
 			default:

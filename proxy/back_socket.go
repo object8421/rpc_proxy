@@ -51,10 +51,8 @@ func (p *BackSocket) connect() error {
 	p.Socket, err = zmq.NewSocket(zmq.DEALER)
 	if err == nil {
 
-		socketSeq += 1
-
 		// 如果在内网，则使用 10.xx的IP, 否则使用""
-		ip := GetIpWithPrefix("10.")
+		ip := utils.GetIpWithPrefix("10.")
 		p.Socket.SetIdentity(fmt.Sprintf("proxy-%s-%d", ip, os.Getpid()))
 
 		p.Socket.Connect(p.Addr)
@@ -116,7 +114,7 @@ func (p *BackSockets) addEndpoint(addr string) bool {
 	return true
 }
 
-func FormatYYYYmmDDHHMMSS(date Time) {
+func FormatYYYYmmDDHHMMSS(date time.Time) string {
 	return date.Format("@2006-01-02 15:04:05")
 }
 
@@ -129,7 +127,12 @@ func (p *BackSockets) PurgeEndpoints() {
 		return
 	}
 
-	log.Printf(utils.Green("PurgeEndpoints, total[%d] --> active[%d]"), len(p.Sockets), p.Active)
+	if p.Active > 0 {
+		log.Printf(rpc_commons.Green("PurgeEndpoints, total[%d] --> active[%d]"), len(p.Sockets), p.Active)
+	} else {
+		// 报警
+		log.Printf(rpc_commons.Red("PurgeEndpoints, total[%d] --> active[%d]"), len(p.Sockets), p.Active)
+	}
 
 	p.Lock()
 	defer p.Unlock()
@@ -149,7 +152,7 @@ func (p *BackSockets) PurgeEndpoints() {
 			// 关闭
 			// current
 			// 关闭旧的Socket
-			log.Println(utils.Red("PurgeEndpoints#Purge Old Socket: "), current.Addr, nowStr)
+			log.Println(rpc_commons.Red("PurgeEndpoints#Purge Old Socket: "), current.Addr, nowStr)
 			// 由Socket自己维护自己的状态
 			// current.Socket.Close()
 
@@ -177,7 +180,7 @@ func (p *BackSockets) UpdateEndpointAddrs(addrSet map[string]bool) {
 	now := FormatYYYYmmDDHHMMSS(time.Now())
 	for i := 0; i < p.Active; i++ {
 		if _, ok := addrSet[p.Sockets[i].Addr]; !ok {
-			log.Println(utils.Red("MarkEndpointsOffline#Mark Backend Offline: "), p.Sockets[i].Addr, now)
+			log.Println(rpc_commons.Red("MarkEndpointsOffline#Mark Backend Offline: "), p.Sockets[i].Addr, now)
 
 			p.markOffline(p.Sockets[i])
 			i--
