@@ -2,16 +2,14 @@ package proxy
 
 import (
 	"fmt"
-	zmq "github.com/pebbe/zmq4"
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	zmq "github.com/pebbe/zmq4"
 	"os"
 	"sync"
 	"time"
 )
-
-// socket的编号
-var socketSeq int = 0
 
 type BackSocket struct {
 	Socket            *zmq.Socket
@@ -21,6 +19,11 @@ type BackSocket struct {
 	poller            *zmq.Poller
 }
 
+//
+// 建立到后端的Socket
+// 后端服务包含:
+// 直接提供Rpc服务的go/java服务; 或者Load Balance等
+//
 func NewBackSocket(Addr string, index int, poller *zmq.Poller) *BackSocket {
 	return &BackSocket{
 		Socket:            nil,
@@ -47,18 +50,21 @@ func (p *BackSocket) connect() error {
 	var err error
 	p.Socket, err = zmq.NewSocket(zmq.DEALER)
 	if err == nil {
-		// 这个Id存在问题:
+
 		socketSeq += 1
-		p.Socket.SetIdentity(fmt.Sprintf("proxy-%d-%d", os.Getpid(), socketSeq))
+
+		// 如果在内网，则使用 10.xx的IP, 否则使用""
+		ip := GetIpWithPrefix("10.")
+		p.Socket.SetIdentity(fmt.Sprintf("proxy-%s-%d", ip, os.Getpid()))
 
 		p.Socket.Connect(p.Addr)
 		// 都只看数据的输入
 		// 数据的输出经过异步处理，不用考虑时间的问题
 		p.poller.Add(p.Socket, zmq.POLLIN)
-		log.Println("Socket Create Succeed")
+		log.Printf("Socket To %s Create Succeed\n", p.Addr)
 		return nil
 	} else {
-		log.Println("Socket Create Failed: ", err)
+		log.Printf("Socket To %s Create Failed: %v\n", p.Addr, err)
 		return err
 	}
 }
@@ -102,11 +108,16 @@ func (p *BackSockets) addEndpoint(addr string) bool {
 	}
 	total := len(p.Sockets)
 	socket := NewBackSocket(addr, total, p.poller)
-
 	p.Sockets = append(p.Sockets, socket)
+
+	// 将新添加的Socket作为Active添加进去
 	p.swap(p.Sockets[p.Active], socket)
 	p.Active++
 	return true
+}
+
+func FormatYYYYmmDDHHMMSS(date Time) {
+	return date.Format("@2006-01-02 15:04:05")
 }
 
 //
@@ -118,13 +129,13 @@ func (p *BackSockets) PurgeEndpoints() {
 		return
 	}
 
-	log.Printf(utils.Green("PurgeEndpoints, active[%d] vs. total[%d]"), p.Active, len(p.Sockets))
+	log.Printf(utils.Green("PurgeEndpoints, total[%d] --> active[%d]"), len(p.Sockets), p.Active)
 
 	p.Lock()
 	defer p.Unlock()
 
 	now := time.Now().Unix()
-	nowStr := time.Now().Format("@2006-01-02 15:04:05")
+	nowStr := FormatYYYYmmDDHHMMSS(time.Now())
 
 	for i := p.Active; i < len(p.Sockets); i++ {
 		// 逐步删除过期的Sockets
@@ -163,7 +174,7 @@ func (p *BackSockets) UpdateEndpointAddrs(addrSet map[string]bool) {
 		p.addEndpoint(addr)
 	}
 
-	now := time.Now().Format("@2006-01-02 15:04:05")
+	now := FormatYYYYmmDDHHMMSS(time.Now())
 	for i := 0; i < p.Active; i++ {
 		if _, ok := addrSet[p.Sockets[i].Addr]; !ok {
 			log.Println(utils.Red("MarkEndpointsOffline#Mark Backend Offline: "), p.Sockets[i].Addr, now)
@@ -183,6 +194,7 @@ func (p *BackSockets) markOffline(s *BackSocket) {
 	if s.index < p.Active {
 		p.swap(s, p.Sockets[p.Active-1])
 		p.Active -= 1
+		log.Warnf("MarkoffLine Socket, Current Active: %d", p.Active)
 	} else {
 		panic("Invalid index")
 	}

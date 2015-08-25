@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
@@ -35,40 +36,42 @@ func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology, v
 
 	var evtbus chan interface{} = make(chan interface{}, 2)
 	servicePath := topo.ProductServicePath(serviceName)
-	endpoints, err := topo.WatchChildren(servicePath, evtbus)
-	if err != nil {
-		log.Println("Error: ", err)
-		panic("Reading Service List Failed: ")
-	}
 
 	go func() {
 		for true {
-			// 如何监听endpoints的变化呢?
-			addrSet := make(map[string]bool)
-			nowStr := time.Now().Format("@2006-01-02 15:04:05")
-			for _, endpoint := range endpoints {
-				// 这些endpoint变化该如何处理呢?
-				log.Println(utils.Green("---->Find Endpoint: "), endpoint, "For Service: ", serviceName)
-				endpointInfo, _ := topo.GetServiceEndPoint(serviceName, endpoint)
+			endpoints, err := topo.WatchChildren(servicePath, evtbus)
 
-				addr, ok := endpointInfo["frontend"]
-				if ok {
-					addrStr := addr.(string)
-					log.Println(utils.Green("---->Add endpoint to backend: "), addrStr, nowStr, "For Service: ", serviceName)
-					addrSet[addrStr] = true
+			if err != nil {
+				// 如何监听endpoints的变化呢?
+				addrSet := make(map[string]bool)
+				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
+				for _, endpoint := range endpoints {
+					// 这些endpoint变化该如何处理呢?
+					log.Println(utils.Green("---->Find Endpoint: "), endpoint, "For Service: ", serviceName)
+					endpointInfo, _ := topo.GetServiceEndPoint(serviceName, endpoint)
+
+					addr, ok := endpointInfo[rpc_commons.SERVER_ENDPOINT]
+					if ok {
+						addrStr := addr.(string)
+						log.Println(utils.Green("---->Add endpoint to backend: "), addrStr, nowStr, "For Service: ", serviceName)
+						addrSet[addrStr] = true
+					}
 				}
+
+				service.backend.UpdateEndpointAddrs(addrSet)
+
+				// 等待事件
+				<-evtbus
+			} else {
+				log.WarnErrorf(err, "zk read failed: %s\n", servicePath)
+				// 如果读取失败则，则继续等待5s
+				time.Sleep(time.Duration(5) * time.Second)
 			}
 
-			service.backend.UpdateEndpointAddrs(addrSet)
-
-			// 等待事件
-			<-evtbus
-			// 读取数据，继续监听
-			endpoints, err = topo.WatchChildren(servicePath, evtbus)
 		}
 	}()
 
-	ticker := time.NewTicker(time.Millisecond * 1000)
+	ticker := time.NewTicker(time.Second * 5)
 	go func() {
 		for _ = range ticker.C {
 			service.backend.PurgeEndpoints()
@@ -87,7 +90,6 @@ func (s *BackService) HandleRequest(client_id string, msgs []string) (total int,
 	backSocket := s.backend.NextSocket()
 	if backSocket == nil {
 		// 没有后端服务
-
 		if s.Verbose {
 			log.Println(utils.Red("No BackSocket Found for service:"), s.ServiceName)
 		}

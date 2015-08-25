@@ -4,9 +4,9 @@
 package utils
 
 import (
+	"git.chunyu.me/infra/go-zookeeper/zk"
+	"git.chunyu.me/infra/zkhelper"
 	log "github.com/ngaut/logging"
-	"github.com/wandoulabs/go-zookeeper/zk"
-	"github.com/wandoulabs/zkhelper"
 	"sync"
 	"time"
 )

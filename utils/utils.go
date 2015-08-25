@@ -10,15 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/c4pt0r/cfg"
-	color "github.com/fatih/color"
-	"github.com/wandoulabs/zkhelper"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"github.com/c4pt0r/cfg"
+	"github.com/wandoulabs/zkhelper"
 )
-
-var Red = color.New(color.FgRed).SprintFunc()
-var Green = color.New(color.FgGreen).SprintFunc()
 
 func InitConfig() (*cfg.Cfg, error) {
 	configFile := os.Getenv("CODIS_CONF")
@@ -61,7 +57,7 @@ func GetIpWithPrefix(prefix string) string {
 			}
 
 			ipAddr := ip.String()
-			//			fmt.Println("ipAddr: ", ipAddr)
+			// fmt.Println("ipAddr: ", ipAddr)
 			if strings.HasPrefix(ipAddr, prefix) {
 				return ipAddr
 			}

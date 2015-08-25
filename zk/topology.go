@@ -6,11 +6,11 @@ package zk
 import (
 	"encoding/json"
 	"fmt"
-	color "github.com/fatih/color"
-	topo "github.com/wandoulabs/go-zookeeper/zk"
-	"github.com/wandoulabs/zkhelper"
+	topo "git.chunyu.me/infra/go-zookeeper/zk"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"git.chunyu.me/infra/zkhelper"
+	color "github.com/fatih/color"
 	os_path "path"
 	"strings"
 )
