@@ -72,18 +72,22 @@ func (p *BackSocket) connect() error {
 //      [Active, len(Sockets))之间为等待关闭的Socket, zk, 或者上游环节直接通知关闭，这样便从active area转移出来
 type BackSockets struct {
 	sync.RWMutex
-	Sockets []*BackSocket
-	Active  int
-	Current int
-	poller  *zmq.Poller
+	ServiceName string
+	Sockets     []*BackSocket
+	Active      int
+	Current     int
+	poller      *zmq.Poller
+	Verbose     bool
 }
 
-func NewBackSockets(poller *zmq.Poller) *BackSockets {
+func NewBackSockets(poller *zmq.Poller, serviceName string, verbose bool) *BackSockets {
 	item := &BackSockets{
-		Sockets: make([]*BackSocket, 0),
-		Active:  0,
-		Current: 0,
-		poller:  poller,
+		ServiceName: serviceName,
+		Sockets:     make([]*BackSocket, 0),
+		Active:      0,
+		Current:     0,
+		poller:      poller,
+		Verbose:     verbose,
 	}
 	return item
 }
@@ -209,6 +213,10 @@ func (p *BackSockets) markOffline(s *BackSocket) {
 func (p *BackSockets) NextSocket() *BackSocket {
 	p.RLock()
 	defer p.RUnlock()
+
+	if p.Verbose {
+		log.Infof("Active Workers %d for Service: %s\n", p.ServiceName, p.Active)
+	}
 	if p.Active > 0 {
 		if p.Current >= p.Active {
 			p.Current = 0

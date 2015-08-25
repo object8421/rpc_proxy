@@ -23,7 +23,7 @@ type BackService struct {
 // 创建一个BackService
 func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology, verbose bool) *BackService {
 
-	backSockets := NewBackSockets(poller)
+	backSockets := NewBackSockets(poller, serviceName, verbose)
 
 	service := &BackService{
 		ServiceName: serviceName,
@@ -40,7 +40,7 @@ func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology, v
 		for true {
 			endpoints, err := topo.WatchChildren(servicePath, evtbus)
 
-			if err != nil {
+			if err == nil {
 				// 如何监听endpoints的变化呢?
 				addrSet := make(map[string]bool)
 				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
@@ -128,25 +128,41 @@ func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology, 
 		Verbose:         verbose,
 	}
 
+	// 监控服务的变化
+	result.WatchServices()
+
+	return result
+}
+
+func (bk *BackServices) ReportServices() {
+	bk.RLock()
+	log.Info(rpc_commons.Green("Report Service Workers: "))
+	for serviceName, service := range bk.Services {
+		log.Infof("Service: %s, Worker Count: %d\n", serviceName, service.backend.Active)
+	}
+	bk.RUnlock()
+}
+
+func (bk *BackServices) WatchServices() {
 	var evtbus chan interface{} = make(chan interface{}, 2)
-	servicesPath := topo.ProductServicesPath()
-	path, e1 := topo.CreateDir(servicesPath) // 保证Service目录存在，否则会报错
+	servicesPath := bk.topo.ProductServicesPath()
+	path, e1 := bk.topo.CreateDir(servicesPath) // 保证Service目录存在，否则会报错
 	fmt.Println("Path: ", path, "error: ", e1)
 
 	go func() {
 		for true {
-			services, err := topo.WatchChildren(servicesPath, evtbus)
+			services, err := bk.topo.WatchChildren(servicesPath, evtbus)
 
-			if err != nil {
+			if err == nil {
 				// 保证数据更新是有效的
-				result.Lock()
+				bk.Lock()
 				for _, service := range services {
 					log.Println("Service: ", service)
-					if _, ok := result.Services[service]; !ok {
-						result.addBackService(service)
+					if _, ok := bk.Services[service]; !ok {
+						bk.addBackService(service)
 					}
 				}
-				result.Unlock()
+				bk.Unlock()
 
 				// 等待事件
 				<-evtbus
@@ -158,9 +174,7 @@ func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology, 
 	}()
 
 	// 读取zk, 等待
-	log.Println("ProductName: ", result.topo.ProductName)
-
-	return result
+	log.Println("ProductName: ", bk.topo.ProductName)
 }
 
 // 添加一个后台服务

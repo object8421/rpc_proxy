@@ -7,7 +7,10 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	zmq "github.com/pebbe/zmq4"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -26,7 +29,7 @@ type ProxyServer struct {
 func NewProxyServer(config *utils.Config) *ProxyServer {
 	server := &ProxyServer{
 		ProductName:  config.ProductName,
-		FrontendAddr: config.FrontendAddr,
+		FrontendAddr: config.ProxyAddr,
 		ZkAdresses:   config.ZkAddr,
 		Verbose:      config.Verbose,
 		Profile:      config.Profile,
@@ -57,6 +60,12 @@ func (p *ProxyServer) Run() {
 	// 开始监听前端服务
 	poller.Add(frontend, zmq.POLLIN)
 
+	ch := make(chan os.Signal, 1)
+
+	if p.Verbose {
+		signal.Notify(ch, syscall.SIGUSR1)
+	}
+
 	for {
 		var sockets []zmq.Polled
 		var err error
@@ -66,8 +75,11 @@ func (p *ProxyServer) Run() {
 		if err != nil {
 			log.Println("Encounter Errors, Services Stoped: ", err)
 			continue
+		} else {
+			if p.Verbose {
+				log.Printf("Sockets: %d\n", len(sockets))
+			}
 		}
-
 		for _, socket := range sockets {
 			switch socket.Socket {
 
@@ -83,13 +95,15 @@ func (p *ProxyServer) Run() {
 				var service string
 				var client_id string
 
-				utils.PrintZeromqMsgs(msgs, "ProxyFrontEnd")
+				if p.Verbose {
+					utils.PrintZeromqMsgs(msgs, "ProxyFrontEnd")
+				}
 
 				// msg格式: <client_id, '', service,  '', other_msgs>
 				client_id, msgs = utils.Unwrap(msgs)
 				service, msgs = utils.Unwrap(msgs)
 
-				//				log.Println("Client_id: ", client_id, ", Service: ", service)
+				log.Println("Client_id: ", client_id, ", Service: ", service)
 
 				backService := backServices.GetBackService(service)
 
@@ -161,6 +175,15 @@ func (p *ProxyServer) Run() {
 					}
 					frontend.SendMessage(msgs)
 				}
+			}
+		}
+
+		// Debug
+		if p.Verbose {
+			select {
+			case <-ch:
+				backServices.ReportServices()
+			default:
 			}
 		}
 	}
