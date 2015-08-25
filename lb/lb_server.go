@@ -218,7 +218,7 @@ func (p *LoadBalanceServer) Run() {
 				suideTime = time.Now().Add(time.Second * 3)
 			} else {
 				if time.Now().After(suideTime) {
-					log.Println(utils.Green("Load Balance Suiside Gracefully"))
+					log.Println(rpc_commons.Green("Load Balance Suiside Gracefully"))
 					break
 				}
 			}
@@ -248,11 +248,11 @@ func (p *LoadBalanceServer) Run() {
 				topo.DeleteServiceEndPoint(p.ServiceName, lbServiceName)
 
 				if sig == syscall.SIGKILL {
-					log.Println(utils.Red("Got Kill Signal, Return Directly"))
+					log.Println(rpc_commons.Red("Got Kill Signal, Return Directly"))
 					break
 				} else {
 					suideTime = time.Now().Add(time.Second * 3)
-					log.Println(utils.Red("Schedule to suicide at: "), suideTime.Format("@2006-01-02 15:04:05"))
+					log.Println(rpc_commons.Red("Schedule to suicide at: "), proxy.FormatYYYYmmDDHHMMSS(suideTime))
 				}
 			}
 		default:
