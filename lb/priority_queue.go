@@ -2,7 +2,6 @@ package lb
 
 import (
 	"container/heap"
-	"fmt"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"time"
 )
