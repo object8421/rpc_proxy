@@ -75,11 +75,12 @@ func (p *ProxyServer) Run() {
 		if err != nil {
 			log.Println("Encounter Errors, Services Stoped: ", err)
 			continue
-		} else {
-			if p.Verbose {
-				log.Printf("Sockets: %d\n", len(sockets))
-			}
 		}
+		//		else {
+		//			if p.Verbose {
+		//				log.Printf("Sockets: %d\n", len(sockets))
+		//			}
+		//		}
 		for _, socket := range sockets {
 			switch socket.Socket {
 

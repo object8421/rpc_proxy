@@ -215,7 +215,7 @@ func (p *BackSockets) NextSocket() *BackSocket {
 	defer p.RUnlock()
 
 	if p.Verbose {
-		log.Infof("Active Workers %d for Service: %s\n", p.ServiceName, p.Active)
+		log.Infof("Active Workers %d for Service: %s\n", p.Active, p.ServiceName)
 	}
 	if p.Active > 0 {
 		if p.Current >= p.Active {
