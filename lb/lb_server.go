@@ -69,7 +69,7 @@ func (p *LoadBalanceServer) Run() {
 	workersQueue := NewPPQueue()
 
 	// 心跳间隔1s
-	heartbeat_at := time.Tick(HEARTBEAT_INTERVAL)
+	heartbeatAt := time.Tick(HEARTBEAT_INTERVAL)
 
 	poller1 := zmq.NewPoller()
 	poller1.Add(backend, zmq.POLLIN)
@@ -83,7 +83,7 @@ func (p *LoadBalanceServer) Run() {
 	poller2.Add(frontend, zmq.POLLIN)
 
 	isAlive := true
-	// 注册服务
+	// 1. 注册服务
 	evtExit := make(chan interface{})
 	rpc_commons.RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, topo, evtExit)
 
@@ -226,18 +226,18 @@ func (p *LoadBalanceServer) Run() {
 
 		// 心跳同步
 		select {
-		case <-heartbeat_at:
+		case <-heartbeatAt:
 			now := time.Now()
 
 			// 给workerQueue中的所有的worker发送心跳消息
 			for _, worker := range workersQueue.WorkerQueue {
 				if worker.Expire.After(now) {
-					//					log.Println("Sending Hb to Worker: ", worker.Identity)
 					backend.SendMessage(worker.Identity, "", PPP_HEARTBEAT_STR)
 				}
 			}
-
+			// 清楚过期的Workers
 			workersQueue.PurgeExpired()
+
 		case sig := <-ch:
 
 			if isAlive {
@@ -248,8 +248,9 @@ func (p *LoadBalanceServer) Run() {
 				topo.DeleteServiceEndPoint(p.ServiceName, lbServiceName)
 
 				if sig == syscall.SIGKILL {
+					// 如果是: kill -9, 则直接退出
 					log.Println(rpc_commons.Red("Got Kill Signal, Return Directly"))
-					break
+					return
 				} else {
 					suideTime = time.Now().Add(time.Second * 3)
 					log.Println(rpc_commons.Red("Schedule to suicide at: "), proxy.FormatYYYYmmDDHHMMSS(suideTime))

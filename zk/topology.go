@@ -79,6 +79,7 @@ func NewTopology(ProductName string, zkAddr string) *Topology {
 func (top *Topology) InitZkConn() {
 	var err error
 	// 连接到zk
+	// 30s的timeout
 	top.zkConn, err = zkhelper.ConnectToZk(top.zkAddr, 30) // 参考: Codis的默认配置
 	if err != nil {
 		log.PanicErrorf(err, "init failed")

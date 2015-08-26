@@ -131,3 +131,13 @@ func PrintZeromqMsgs(msgs []string, prefix string) {
 	//		fmt.Printf("    idx: %d, msg: %s\n", idx, msg)
 	//	}
 }
+
+func Copy(s string) string {
+	var b []byte
+	h := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	h.Data = (*reflect.StringHeader)(unsafe.Pointer(&s)).Data
+	h.Len = len(s)
+	h.Cap = len(s)
+
+	return string(b)
+}

@@ -68,7 +68,9 @@ func (pq *PriorityQueue) Pop() interface{} {
 	return item
 }
 
+//
 // 更新优先级队列中的元素
+//
 func (pq *PriorityQueue) UpdateItem(item *Worker, priority int) {
 	item.priority = priority
 
@@ -118,36 +120,4 @@ func (pq *PriorityQueue) NextWorker() *Worker {
 	log.Println("Has Not Worker...")
 	return nil
 
-}
-
-func main() {
-	// Some items and their priorities.
-	items := map[string]int{
-		"banana": 3, "apple": 2, "pear": 4,
-	}
-
-	// Create a priority queue, put the items in it, and
-	// establish the priority queue (heap) invariants.
-	pq := make(PriorityQueue, len(items))
-	i := 0
-	for value, priority := range items {
-		pq[i] = &Worker{
-			Identity: value,
-			priority: priority,
-			index:    i,
-		}
-		i++
-	}
-	heap.Init(&pq)
-
-	// Insert a new item and then modify its priority.
-	item := NewWorker("orange", 1, 0)
-	heap.Push(&pq, item)
-	pq.UpdateItem(item, 5)
-
-	// Take the items out; they arrive in decreasing priority order.
-	for pq.Len() > 0 {
-		item := heap.Pop(&pq).(*Worker)
-		fmt.Printf("%.2d:%s\n", item.priority, item.Identity)
-	}
 }

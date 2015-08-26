@@ -55,6 +55,8 @@ func (pq *PPQueue) HasNextWorker() bool {
 
 func (pq *PPQueue) UpdateWorkerExpire(identity string) {
 	item, ok := pq.id2item[identity]
+
+	// 更新过期时间
 	if ok {
 		expire := HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS
 		item.Expire = time.Now().Add(expire)
@@ -78,6 +80,9 @@ func (pq *PPQueue) UpdateWorkerStatus(identity string, power int, force bool) {
 
 	if !ok {
 		if power < 0 || !force {
+			if power >= 0 {
+				log.Warnf("Worker %s Heartbeat without ready state\n", identity)
+			}
 			return
 		}
 
@@ -87,14 +92,15 @@ func (pq *PPQueue) UpdateWorkerStatus(identity string, power int, force bool) {
 	} else {
 		item.Expire = time.Now().Add(expire)
 	}
+
 	//	fmt.Println("Item: ", item)
 	if power < 0 {
-		// 下线
-		if item.index == INVALID_INDEX {
-			delete(pq.id2item, identity)
-		} else {
+		// 下线(并不是马上下线，而是标记下线)
+		delete(pq.id2item, identity)
+
+		if item.index != INVALID_INDEX {
+			// 从队列中删除，并且从id2item中移除
 			heap.Remove(&(pq.WorkerQueue), item.index)
-			delete(pq.id2item, identity)
 		}
 		return
 	}
