@@ -5,8 +5,8 @@ package utils
 
 import (
 	"fmt"
-	"github.com/c4pt0r/cfg"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"github.com/c4pt0r/cfg"
 	"strings"
 )
 
@@ -29,18 +29,21 @@ type Config struct {
 	Verbose   bool
 }
 
-func (conf *Config) getFrontendAddr() string {
+//
+// 通过参数依赖，保证getFrontendAddr的调用位置（必须等待Host, IpPrefix, Port读取完毕之后)
+//
+func (conf *Config) getFrontendAddr(frontHost, ipPrefix, frontPort string) string {
 	var frontendAddr = ""
 	// 如果没有指定FrontHost, 则自动根据 IpPrefix来进行筛选，
 	// 例如: IpPrefix: 10., 那么最终内网IP： 10.4.10.2之类的被选中
-	if conf.FrontHost == "" {
-		log.Println("FrontHost: ", conf.FrontHost, ", Prefix: ", conf.IpPrefix)
-		if conf.IpPrefix != "" {
-			conf.FrontHost = GetIpWithPrefix(conf.IpPrefix)
+	if frontHost == "" {
+		log.Println("FrontHost: ", frontHost, ", Prefix: ", ipPrefix)
+		if ipPrefix != "" {
+			frontHost = GetIpWithPrefix(ipPrefix)
 		}
 	}
-	if conf.FrontPort != "" && conf.FrontHost != "" {
-		frontendAddr = fmt.Sprintf("tcp://%s:%s", conf.FrontHost, conf.FrontPort)
+	if frontPort != "" && frontHost != "" {
+		frontendAddr = fmt.Sprintf("tcp://%s:%s", frontHost, frontPort)
 	}
 	return frontendAddr
 }
@@ -86,10 +89,12 @@ func LoadConf(configFile string) (*Config, error) {
 	conf.FrontPort, _ = c.ReadString("front_port", "")
 	conf.FrontPort = strings.TrimSpace(conf.FrontPort)
 
-	conf.FrontendAddr = conf.getFrontendAddr()
-
 	conf.IpPrefix, _ = c.ReadString("ip_prefix", "")
 	conf.IpPrefix = strings.TrimSpace(conf.IpPrefix)
+
+	// 注意先后顺序:
+	// FrontHost, FrontPort, IpPrefix之后才能计算FrontendAddr
+	conf.FrontendAddr = conf.getFrontendAddr(conf.FrontHost, conf.IpPrefix, conf.FrontPort)
 
 	conf.BackAddr, _ = c.ReadString("back_address", "")
 	conf.BackAddr = strings.TrimSpace(conf.BackAddr)
