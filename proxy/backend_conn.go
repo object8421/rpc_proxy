@@ -21,6 +21,10 @@ const (
 	ConnStateDied                         // 结束
 )
 
+type BackendConnStateChanged interface {
+	StateChanged(conn *BackendConn)
+}
+
 type BackendConn struct {
 	addr string
 	stop sync.Once
@@ -32,14 +36,19 @@ type BackendConn struct {
 	seqNum2Request map[int32]*Request
 	currentSeqNum  int32 // 范围: 1 ~ 100000
 	State          ConnState
+	Index          int
+	delegate       BackendConnStateChanged
 }
 
-func NewBackendConn(addr string) *BackendConn {
+func NewBackendConn(addr string, delegate BackendConnStateChanged) *BackendConn {
 	bc := &BackendConn{
 		addr:           addr,
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		currentSeqNum:  1,
+		State:          ConnStateInit,
+		Index:          -1,
+		delegate:       delegate,
 	}
 	go bc.Run()
 	return bc
@@ -263,8 +272,8 @@ type SharedBackendConn struct {
 	refcnt int
 }
 
-func NewSharedBackendConn(addr string) *SharedBackendConn {
-	return &SharedBackendConn{BackendConn: NewBackendConn(addr), refcnt: 1}
+func NewSharedBackendConn(addr string, delegate BackendConnStateChanged) *SharedBackendConn {
+	return &SharedBackendConn{BackendConn: NewBackendConn(addr, delegate), refcnt: 1}
 }
 
 func (s *SharedBackendConn) Close() bool {

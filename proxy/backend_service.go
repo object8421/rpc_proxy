@@ -76,9 +76,17 @@ func (s *BackService) WatchBackServiceNodes() {
 				// 如何更新BackendConn呢?
 				s.Lock()
 				for _, addr := range addressList {
-					_, ok := s.addr2Conn[addr]
+					conn, ok := s.addr2Conn[addr]
 					if ok {
-
+						switch conn.State {
+						case ConnStateActive:
+							// 什么也不做
+						case ConnStateDied, ConnStateMarkOffline:
+							conn.State = ConnStateInit
+							// TODO: 重新开始连接
+						}
+					} else {
+						s.addr2Conn[addr] = NewBackendConn(addr, s)
 					}
 				}
 				s.Unlock()
@@ -132,4 +140,28 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 		backendConn.input <- req
 		return err
 	}
+}
+
+func (s *BackService) StateChanged(conn *BackendConn) {
+	s.Lock()
+	if conn.State == ConnStateActive {
+		conn.Index = len(s.activeConns)
+		s.activeConns = append(s.activeConns, conn)
+	} else {
+		if conn.Index != -1 {
+			lastIndex := len(s.activeConns) - 1
+			if lastIndex != conn.Index {
+				lastConn := s.activeConns[lastIndex]
+				// 将最后一个元素和当前的元素交换位置
+				s.activeConns[conn.Index] = lastConn
+				lastConn.Index = conn.Index
+				conn.Index = -1
+
+				// slice
+				s.activeConns = s.activeConns[0:lastIndex]
+
+			}
+		}
+	}
+	s.Unlock()
 }
