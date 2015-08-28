@@ -17,11 +17,12 @@ func TestBackend(t *testing.T) {
 	// 作为一个Server
 	transport, err := thrift.NewTServerSocket("127.0.0.1:0")
 	assert.NoError(t, err)
+	err = transport.Open() // 打开Transport
+	assert.NoError(t, err)
+
 	defer transport.Close()
 
-	err = transport.Open()
-	assert.NoError(t, err)
-	err = transport.Listen()
+	err = transport.Listen() // 开始监听
 	assert.NoError(t, err)
 
 	addr := transport.Addr().String()
@@ -78,7 +79,7 @@ func TestBackend(t *testing.T) {
 
 			req := NewRequest(request)
 			assert.Equal(t, req.Request.SeqId, i+1)
-			fmt.Printf("Server Got Request, and SeqNum OK, Id: %d\n", i)
+			fmt.Printf("Server Got Request, and SeqNum OK, Id: %d, Frame Size: %d\n", i, len(request))
 
 			// 回写数据
 			bt.Write(request)
