@@ -1,7 +1,6 @@
 package main
 
 import (
-	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 )
@@ -12,11 +11,11 @@ const (
 )
 
 func main() {
-	rpc_commons.RpcMain(BINARY_NAME, SERVICE_DESC,
+	proxy.RpcMain(BINARY_NAME, SERVICE_DESC,
 		// 验证LB的配置
-		rpc_commons.ConfigCheckRpcProxy,
+		proxy.ConfigCheckRpcProxy,
 		// 根据配置创建一个Server
-		func(config *utils.Config) rpc_commons.Server {
+		func(config *utils.Config) proxy.Server {
 			// 正式的服务
 			return proxy.NewProxyServer(config)
 		})
