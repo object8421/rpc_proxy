@@ -1,31 +1,31 @@
 package proxy
 
-import (
-	"fmt"
-	thrift "git.apache.org/thrift.git/lib/go/thrift"
-	"git.chunyu.me/infra/rpc_proxy/utils/assert"
-	"strings"
-	"testing"
-)
+//import (
+//	"fmt"
+//	thrift "git.apache.org/thrift.git/lib/go/thrift"
+//	"git.chunyu.me/infra/rpc_proxy/utils/assert"
+//	"strings"
+//	"testing"
+//)
 
-func TestGetThriftException(t *testing.T) {
+//func TestGetThriftException(t *testing.T) {
 
-	//	serviceName := "accounts"
-	//	data := GetServiceNotFoundData(serviceName, 0)
-	//	fmt.Println("Exception Data: ", data)
+//	//	serviceName := "accounts"
+//	//	data := GetServiceNotFoundData(serviceName, 0)
+//	//	fmt.Println("Exception Data: ", data)
 
-	//	transport := thrift.NewTMemoryBufferLen(1024)
-	//	transport.Write(data)
-	//	//	transport.Flush()
+//	//	transport := thrift.NewTMemoryBufferLen(1024)
+//	//	transport.Write(data)
+//	//	//	transport.Flush()
 
-	//	exc := thrift.NewTApplicationException(-1, "")
-	//	protocol := thrift.NewTBinaryProtocolTransport(transport)
+//	//	exc := thrift.NewTApplicationException(-1, "")
+//	//	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
-	//	// 注意: Read函数返回的是一个新的对象
-	//	exc, _ = exc.Read(protocol)
+//	//	// 注意: Read函数返回的是一个新的对象
+//	//	exc, _ = exc.Read(protocol)
 
-	//	fmt.Println("Exc: ", exc.TypeId(), "Error: ", exc.Error())
+//	//	fmt.Println("Exc: ", exc.TypeId(), "Error: ", exc.Error())
 
-	//	var errMsg string = exc.Error()
-	//	assert.Must(strings.Contains(errMsg, serviceName))
-}
+//	//	var errMsg string = exc.Error()
+//	//	assert.Must(strings.Contains(errMsg, serviceName))
+//}

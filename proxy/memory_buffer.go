@@ -24,6 +24,7 @@ func NewTMemoryBufferLen(size int) *TMemoryBuffer {
 // 直接利用现成的Buffer, 由于size不能控制，因此只能拷贝一份出来
 //
 func NewTMemoryBufferWithBuf(buf []byte) *TMemoryBuffer {
+	// buf作为bytes.Buffer的已有的数据，因此需要特别注意
 	return &TMemoryBuffer{Buffer: bytes.NewBuffer(buf), size: len(buf)}
 }
 

@@ -85,8 +85,9 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 		r.Response.SeqId = newSeq
 
-		transport := NewTMemoryBufferWithBuf(r.Request.Data)
+		transport := NewTMemoryBufferWithBuf(r.Request.Data[0:0])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
+		// 直接改写Data
 		protocol.WriteMessageBegin(r.Request.Name, r.Request.TypeId, newSeq)
 	}
 
@@ -94,7 +95,7 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 func (r *Request) RestoreSeqId() {
 	if r.Response.Data != nil {
-		transport := NewTMemoryBufferWithBuf(r.Response.Data)
+		transport := NewTMemoryBufferWithBuf(r.Response.Data[0:0])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
 
 		// 切换回原始的SeqId
