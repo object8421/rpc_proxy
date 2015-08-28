@@ -45,19 +45,10 @@ type Request struct {
 	Failed *atomic2.Bool
 }
 
-func DecodeSeqId(data []byte) (seqId int32, err error) {
-	transport := NewTMemoryBufferWithBuf(data)
-	protocol := thrift.NewTBinaryProtocolTransport(transport)
-
-	_, _, seqId, err = protocol.ReadMessageBegin()
-	return
-}
-
 func NewRequest(data []byte) *Request {
 	request := &Request{
 		Wait: &sync.WaitGroup{},
 	}
-	request.Wait.Add(1)
 	request.Request.Data = data
 	request.DecodeRequest()
 
@@ -104,4 +95,12 @@ func (r *Request) RestoreSeqId() {
 		// 切换回原始的SeqId
 		protocol.WriteMessageBegin(r.Request.Name, r.Request.TypeId, r.Request.SeqId)
 	}
+}
+
+func DecodeSeqId(data []byte) (seqId int32, err error) {
+	transport := NewTMemoryBufferWithBuf(data)
+	protocol := thrift.NewTBinaryProtocolTransport(transport)
+
+	_, _, seqId, err = protocol.ReadMessageBegin()
+	return
 }

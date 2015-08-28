@@ -18,10 +18,10 @@ import (
 type Session struct {
 	*TBufferedFramedTransport
 
-	Ops int64
-
-	LastOpUnix int64
-	CreateUnix int64
+	RemoteAddress string
+	Ops           int64
+	LastOpUnix    int64
+	CreateUnix    int64
 
 	quit   bool
 	failed atomic2.Bool
@@ -37,24 +37,26 @@ func (s *Session) String() string {
 		RemoteAddr string `json:"remote"`
 	}{
 		s.Ops, s.LastOpUnix, s.CreateUnix,
-		"unknow",
+		s.RemoteAddress,
 	}
 	b, _ := json.Marshal(o)
 	return string(b)
 }
 
-func NewSession(c thrift.TTransport) *Session {
-	return NewSessionSize(c, 1024*32, 1800)
+func NewSession(c thrift.TTransport, address string) *Session {
+	return NewSessionSize(c, address, 1024*32, 1800)
 }
 
-func NewSessionSize(c thrift.TTransport, bufsize int, timeout int) *Session {
-	s := &Session{CreateUnix: time.Now().Unix()}
+func NewSessionSize(c thrift.TTransport, address string, bufsize int, timeout int) *Session {
+	s := &Session{
+		CreateUnix:               time.Now().Unix(),
+		RemoteAddress:            address,
+		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*200, 20),
+	}
 
 	// 还是基于c net.Conn进行读写，只是采用Redis协议进行编码解码
 	// Reader 处理Client发送过来的消息
 	// Writer 将后端服务的数据返回给Client
-
-	s.TBufferedFramedTransport = NewTBufferedFramedTransport(c, time.Microsecond*200, 20)
 	log.Infof("session [%p] create: %s", s, s)
 	return s
 }
@@ -108,7 +110,7 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 	}
 	for !s.quit {
 		// Reader不停地解码， 将Request
-		request, err := s.TBufferedFramedTransport.ReadFrame()
+		request, err := s.ReadFrame()
 		if err != nil {
 			return err
 		}

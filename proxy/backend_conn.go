@@ -189,7 +189,7 @@ func (bc *BackendConn) loopWriter() error {
 	return nil
 }
 
-func (bc *BackendConn) IncreaseCurrentSeqId() int32 {
+func (bc *BackendConn) IncreaseCurrentSeqId() {
 	// 备案(只有loopWriter操作，不加锁)
 	bc.currentSeqId++
 	if bc.currentSeqId > 100000 {
@@ -223,8 +223,8 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 		for true {
 			resp, err := c.ReadFrame()
 
-			log.Printf("ReadFrame From Server with Error: %v\n", err)
 			if err != nil {
+				log.Printf("ReadFrame From Server with Error: %v\n", err)
 				bc.flushRequests(err)
 				break
 			} else {
@@ -263,7 +263,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("Data From Server, seqId: %d\n", seqId)
+
 		// 找到对应的Request
 		bc.Lock()
 		req, ok := bc.seqNum2Request[seqId]
@@ -281,6 +281,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	}
 
 	r.Response.Data, r.Response.Err = data, err
+	// 还原SeqId
 	if data != nil {
 		r.RestoreSeqId()
 	}

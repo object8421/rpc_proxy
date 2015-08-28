@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"io"
 	"time"
@@ -69,13 +70,13 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 		return
 	}
 
-	log.Printf("<==== ReadFrame frame size: %d\n", frameSize)
+	//	log.Printf("<==== ReadFrame frame size: %d\n", frameSize)
 	// TODO: 优化
 	bytes := make([]byte, frameSize, frameSize)
 	var l int
 	l, err = p.Reader.Read(bytes)
 
-	log.Printf("<==== ReadFrame frame size: %d, Got: %d\n", frameSize, l)
+	log.Printf(rpc_commons.Red("<==== ReadFrame frame size: %d, Got: %d\n"), frameSize, l)
 
 	if err != nil {
 		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Data Read Error"))

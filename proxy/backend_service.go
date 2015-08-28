@@ -31,13 +31,6 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 		Verbose:     verbose,
 	}
 
-	//	ticker := time.NewTicker(time.Second * 5)
-	//	go func() {
-	//		for _ = range ticker.C {
-	//			service.backend.PurgeEndpoints()
-	//		}
-	//	}()
-
 	return service
 
 }
@@ -106,6 +99,7 @@ func (s *BackService) WatchBackServiceNodes() {
 	}()
 }
 
+// 获取下一个active状态的BackendConn
 func (s *BackService) NextBackendConn() *BackendConn {
 	var backSocket *BackendConn
 	s.RLock()
@@ -133,15 +127,18 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 		if s.Verbose {
 			log.Println(rpc_commons.Red("No BackSocket Found for service:"), s.ServiceName)
 		}
-		//		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)
-		// TODO:
+		// 从errMsg来构建异常
+		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)
+		req.Response.Data = errMsg
+		req.Wait.Done()
+
 		return nil
 	} else {
 		if s.Verbose {
 			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.ServiceName)
 		}
 		backendConn.input <- req
-		return err
+		return nil
 	}
 }
 

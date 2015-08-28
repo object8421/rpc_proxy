@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -41,6 +42,10 @@ func TestBackend(t *testing.T) {
 
 		req := NewRequest(buf)
 
+		req.Wait.Add(1) // 因为go routine可能还没有执行，代码就跑到最后面进行校验了
+
+		assert.Equal(t, i+1, req.Request.SeqId, "Request SeqId是否靠谱")
+
 		requests = append(requests, req)
 	}
 
@@ -54,7 +59,9 @@ func TestBackend(t *testing.T) {
 		var i int32
 		for i = 0; i < requestNum; i++ {
 			fmt.Println("Sending Request to Backend Conn", i)
-			bc.input <- requests[i]
+			bc.PushBack(requests[i])
+
+			requests[i].Wait.Done()
 		}
 
 		// 需要等待数据返回?
@@ -92,11 +99,14 @@ func TestBackend(t *testing.T) {
 	}()
 
 	fmt.Println("Requests Len: ", len(requests))
-	for _, r := range requests {
+	for idx, r := range requests {
 		r.Wait.Wait()
 
+		// r 原始的请求
 		req := NewRequest(r.Response.Data)
+
+		log.Printf(rpc_commons.Green("SeqMatch[%d]: Orig: %d, Return: %d\n"), idx, req.Request.SeqId, r.Request.SeqId)
 		assert.Equal(t, req.Request.SeqId, r.Request.SeqId)
-		assert.Equal(t, len(r.Request.Data), len(r.Response.Data))
 	}
+	log.Println("OK")
 }

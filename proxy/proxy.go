@@ -58,9 +58,17 @@ func (p *ProxyServer) Run() {
 	defer close(ch)
 
 	go func() {
+		var address string
 		for c := range ch {
 			// 为每个Connection建立一个Session
-			x := NewSession(c)
+			socket, ok := c.(*thrift.TSocket)
+
+			if ok {
+				address = socket.Addr().String()
+			} else {
+				address = "unknow"
+			}
+			x := NewSession(c, address)
 			// Session独立处理自己的请求
 			go x.Serve(p.Router, 1000)
 		}

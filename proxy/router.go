@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
 	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
@@ -124,32 +125,29 @@ func (bk *Router) GetBackService(service string) *BackService {
 	}
 }
 
-//func (s *Router) Close() error {
-//	//	s.mu.Lock()
-//	//	defer s.mu.Unlock()
-//	//	if s.closed {
-//	//		return nil
-//	//	}
-//	//	for i := 0; i < len(s.slots); i++ {
-//	//		s.resetSlot(i)
-//	//	}
-//	//	s.closed = true
-//	//	return nil
-//}
+func (s *Router) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	return nil
+}
 
-//var errClosedRouter = errors.New("use of closed router")
+var errClosedRouter = errors.New("use of closed router")
 
-//func (s *Router) KeepAlive() error {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	if s.closed {
-//		return errClosedRouter
-//	}
-//	for _, bc := range s.pool {
-//		bc.KeepAlive()
-//	}
-//	return nil
-//}
+func (s *Router) KeepAlive() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errClosedRouter
+	}
+	for _, bc := range s.pool {
+		bc.KeepAlive()
+	}
+	return nil
+}
 
 // 后端如何处理一个Request?
 func (s *Router) Dispatch(r *Request) error {
