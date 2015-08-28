@@ -6,14 +6,16 @@ import (
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"strings"
 	"time"
 )
 
 const (
-	HEARTBEAT_INTERVAL = 1000
-	SERVER_ENDPOINT    = "frontend"
+	SERVER_ENDPOINT = "frontend"
 )
 
 type Server interface {
@@ -45,6 +47,7 @@ func NewThriftRpcServer(config *utils.Config, processor thrift.TProcessor) *Thri
 		Verbose:      config.Verbose,
 		Processor:    processor,
 	}
+
 }
 
 //
@@ -109,6 +112,19 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 	}()
 }
 
+// 后端如何处理一个Request?
+func (p *ThriftRpcServer) Dispatch(r *Request) error {
+	transport := NewTMemoryBufferWithBuf(r.Request.Data)
+	ip := thrift.NewTBinaryProtocolTransport(transport)
+
+	transport = NewTMemoryBufferLen(1024)
+	op := thrift.NewTBinaryProtocolTransport(transport)
+	p.Processor.Process(ip, op)
+
+	r.Response.Data = transport.Bytes()
+	return nil
+}
+
 func (p *ThriftRpcServer) Run() {
 	//	// 1. 创建到zk的连接
 	p.Topo = zk.NewTopology(p.ProductName, p.ZkAddr)
@@ -116,9 +132,9 @@ func (p *ThriftRpcServer) Run() {
 	// tcp://127.0.0.1:5555 --> tcp://127_0_0_1:5555
 	lbServiceName := GetServiceIdentity(p.FrontendAddr)
 
-	ch := make(chan os.Signal, 1)
+	ch1 := make(chan os.Signal, 1)
 
-	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
+	signal.Notify(ch1, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 	// syscall.SIGKILL
 	// kill -9 pid
 	// kill -s SIGKILL pid 还是留给运维吧
@@ -128,15 +144,17 @@ func (p *ThriftRpcServer) Run() {
 	evtExit := make(chan interface{})
 	RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, p.Topo, evtExit)
 
-	var suideTime time.Time
+	//	var suideTime time.Time
 
-	isAlive := true
+	//	isAlive := true
 
 	// 3. 读取后端服务的配置
 	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
 	}
+
+	transport.Open()
 
 	// 开始监听
 	transport.Listen()
@@ -155,9 +173,9 @@ func (p *ThriftRpcServer) Run() {
 			} else {
 				address = "unknow"
 			}
-			x := NewSession(c, address)
+			x := NewNonBlockSession(c, address)
 			// Session独立处理自己的请求
-			go x.Serve(p.Router, 1000)
+			go x.Serve(p, 1000)
 		}
 	}()
 

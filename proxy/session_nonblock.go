@@ -15,7 +15,7 @@ import (
 //
 // 用于rpc proxy或者load balance用来管理Client的
 //
-type Session struct {
+type NonBlockSession struct {
 	*TBufferedFramedTransport
 
 	RemoteAddress string
@@ -29,7 +29,7 @@ type Session struct {
 }
 
 // 返回当前Session的状态
-func (s *Session) String() string {
+func (s *NonBlockSession) String() string {
 	o := &struct {
 		Ops        int64  `json:"ops"`
 		LastOpUnix int64  `json:"lastop"`
@@ -43,12 +43,12 @@ func (s *Session) String() string {
 	return string(b)
 }
 
-func NewSession(c thrift.TTransport, address string) *Session {
-	return NewSessionSize(c, address, 1024*32, 1800)
+func NewNonBlockSession(c thrift.TTransport, address string) *NonBlockSession {
+	return NewNonBlockSessionSize(c, address, 1024*32, 1800)
 }
 
-func NewSessionSize(c thrift.TTransport, address string, bufsize int, timeout int) *Session {
-	s := &Session{
+func NewNonBlockSessionSize(c thrift.TTransport, address string, bufsize int, timeout int) *NonBlockSession {
+	s := &NonBlockSession{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
 		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*200, 20),
@@ -61,17 +61,17 @@ func NewSessionSize(c thrift.TTransport, address string, bufsize int, timeout in
 	return s
 }
 
-func (s *Session) Close() error {
+func (s *NonBlockSession) Close() error {
 	s.failed.Set(true)
 	s.closed.Set(true)
 	return s.TBufferedFramedTransport.Close()
 }
 
-func (s *Session) IsClosed() bool {
+func (s *NonBlockSession) IsClosed() bool {
 	return s.closed.Get()
 }
 
-func (s *Session) Serve(d Dispatcher, maxPipeline int) {
+func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 	var errlist errors.ErrorList
 	defer func() {
 		if err := errlist.First(); err != nil {
@@ -97,36 +97,36 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 
 	defer close(tasks)
 
-	// 从Client读取用户的请求，然后再交给Dispatcher来处理
-	if err := s.loopReader(tasks, d); err != nil {
-		errlist.PushBack(err)
-	}
-}
+	//	// 从Client读取用户的请求，然后再交给Dispatcher来处理
+	//	if err := s.loopReader(tasks, d); err != nil {
+	//		errlist.PushBack(err)
+	//	}
+	//}
 
-// 从Client读取数据
-func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
-	if d == nil {
-		return errors.New("nil dispatcher")
-	}
+	//// 从Client读取数据
+	//func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
+	//	if d == nil {
+	//		return errors.New("nil dispatcher")
+	//	}
 	for !s.quit {
 		// Reader不停地解码， 将Request
 		request, err := s.ReadFrame()
 		if err != nil {
-			return err
+			errlist.PushBack(err)
+			return
 		}
 
-		r, err := s.handleRequest(request, d)
-		if err != nil {
-			return err
-		} else {
+		go func() {
+			// 异步执行
+			r, _ := s.handleRequest(request, d)
 			log.Info("Succeed Get Result")
 			tasks <- r
-		}
+		}()
 	}
-	return nil
+	return
 }
 
-func (s *Session) loopWriter(tasks <-chan *Request) error {
+func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 	for r := range tasks {
 		// 1. 等待Request对应的Response
 		//    出错了如何处理呢?
@@ -155,10 +155,8 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 	return nil
 }
 
-var ErrRespIsRequired = errors.New("resp is required")
-
 // 获取可以直接返回给Client的response
-func (s *Session) handleResponse(r *Request) (resp []byte, e error) {
+func (s *NonBlockSession) handleResponse(r *Request) (resp []byte, e error) {
 	// 等待结果的出现
 	r.Wait.Wait()
 
@@ -180,7 +178,7 @@ func (s *Session) handleResponse(r *Request) (resp []byte, e error) {
 }
 
 // 处理来自Client的请求
-func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) {
+func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
 	log.Printf("HandleRequest: %s\n", string(request))
 	r := NewRequest(request)
@@ -193,13 +191,13 @@ func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) 
 	return r, d.Dispatch(r)
 }
 
-func (s *Session) handleQuit(r *Request) (*Request, error) {
+func (s *NonBlockSession) handleQuit(r *Request) (*Request, error) {
 	s.quit = true
 	//	r.Response.Resp = redis.NewString([]byte("OK"))
 	return r, nil
 }
 
-func (s *Session) handlePing(r *Request) (*Request, error) {
+func (s *NonBlockSession) handlePing(r *Request) (*Request, error) {
 	//	if len(r.Resp.Array) != 1 {
 	//		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'PING' command"))
 	//		return r, nil
@@ -207,8 +205,4 @@ func (s *Session) handlePing(r *Request) (*Request, error) {
 	//	r.Response.Resp = redis.NewString([]byte("PONG"))
 	//	return r, nil
 	return nil, nil
-}
-
-func microseconds() int64 {
-	return time.Now().UnixNano() / int64(time.Microsecond)
 }

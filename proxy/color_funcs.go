@@ -1,4 +1,4 @@
-package rpc_commons
+package proxy
 
 import (
 	color "github.com/fatih/color"

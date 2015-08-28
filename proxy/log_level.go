@@ -1,4 +1,4 @@
-package rpc_commons
+package proxy
 
 import (
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
