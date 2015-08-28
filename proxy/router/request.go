@@ -51,18 +51,33 @@ func DecodeSeqId(data []byte) (seqId int32, err error) {
 	return
 }
 
+func NewRequest(data []byte) *Request {
+	request := &Request{
+		Wait: &sync.WaitGroup{},
+	}
+	request.Request.Data = data
+	request.DecodeRequest()
+
+	return request
+
+}
+func (r *Request) DecodeRequest() {
+	transport := NewTMemoryBufferWithBuf(r.Request.Data)
+	protocol := thrift.NewTBinaryProtocolTransport(transport)
+
+	r.Request.Name, r.Request.TypeId, r.Request.SeqId, _ = protocol.ReadMessageBegin()
+}
+
 //
 // 将Request中的SeqNum进行替换
 //
 func (r *Request) ReplaceSeqId(newSeq int32) {
 	if r.Request.Data != nil {
-		transport := NewTMemoryBufferWithBuf(r.Request.Data)
-		protocol := thrift.NewTBinaryProtocolTransport(transport)
 
-		r.Request.Name, r.Request.TypeId, r.Request.SeqId, _ = protocol.ReadMessageBegin()
 		r.Response.SeqId = newSeq
 
-		transport.Close()
+		transport := NewTMemoryBufferWithBuf(r.Request.Data)
+		protocol := thrift.NewTBinaryProtocolTransport(transport)
 		protocol.WriteMessageBegin(r.Request.Name, r.Request.TypeId, newSeq)
 	}
 
