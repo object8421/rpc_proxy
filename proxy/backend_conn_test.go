@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	//	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -18,6 +19,8 @@ func TestBackend(t *testing.T) {
 	assert.NoError(t, err)
 	defer transport.Close()
 
+	err = transport.Open()
+	assert.NoError(t, err)
 	err = transport.Listen()
 	assert.NoError(t, err)
 
@@ -32,37 +35,13 @@ func TestBackend(t *testing.T) {
 	var i int32
 	for i = 0; i < requestNum; i++ {
 		buf := make([]byte, 100, 100)
-		l := fakeData("Hello", thrift.CALL, i, buf[0:0])
+		l := fakeData("Hello", thrift.CALL, i+1, buf[0:0])
 		buf = buf[0:l]
 
 		req := NewRequest(buf)
 
 		requests = append(requests, req)
 	}
-
-	go func() {
-		tran, err := transport.Accept()
-		assert.NoError(t, err)
-
-		bt := NewTBufferedFramedTransport(tran, time.Microsecond*100, 2)
-
-		// 在当前的这个t上读写数据
-		var i int32
-		for i = 0; i < requestNum; i++ {
-			request, err := bt.ReadFrame()
-			assert.NoError(t, err)
-
-			// 回写数据
-			bt.Write(request)
-			bt.FlushBuffer(true)
-
-			req := NewRequest(request)
-
-			assert.Equal(t, req.Request.SeqId, i)
-		}
-
-		tran.Close()
-	}()
 
 	go func() {
 		bc := NewBackendConn(addr, nil)
@@ -75,10 +54,40 @@ func TestBackend(t *testing.T) {
 			bc.input <- requests[i]
 		}
 
-		bc.Run()
+		time.Sleep(time.Second * 2)
+
 	}()
 
-	time.Sleep(time.Second)
+	go func() {
+		tran, err := transport.Accept()
+		fmt.Println("Error: ", err)
+		//		if err != nil {
+		//			log.ErrorErrorf(err, "Error: %v\n", err)
+		//		} else {
+		//			fmt.Printf("Find Transport: %v\n", tran)
+		//		}
+		assert.NoError(t, err)
+
+		bt := NewTBufferedFramedTransport(tran, time.Microsecond*100, 2)
+
+		// 在当前的这个t上读写数据
+		var i int32
+		for i = 0; i < requestNum; i++ {
+			request, err := bt.ReadFrame()
+			assert.NoError(t, err)
+
+			req := NewRequest(request)
+			assert.Equal(t, req.Request.SeqId, i+1)
+			fmt.Printf("Server Got Request, and SeqNum OK, Id: %d\n", i)
+
+			// 回写数据
+			bt.Write(request)
+			bt.FlushBuffer(true)
+
+		}
+
+		tran.Close()
+	}()
 
 	fmt.Println("Requests Len: ", len(requests))
 	for _, r := range requests {

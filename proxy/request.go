@@ -6,6 +6,7 @@ package proxy
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
+	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"strings"
 	"sync"
 )
@@ -56,6 +57,7 @@ func NewRequest(data []byte) *Request {
 	request := &Request{
 		Wait: &sync.WaitGroup{},
 	}
+	request.Wait.Add(1)
 	request.Request.Data = data
 	request.DecodeRequest()
 
@@ -82,12 +84,11 @@ func (r *Request) DecodeRequest() {
 //
 func (r *Request) ReplaceSeqId(newSeq int32) {
 	if r.Request.Data != nil {
-
+		log.Printf("Replace SeqNum: %d --> %d\n", r.Request.SeqId, newSeq)
 		r.Response.SeqId = newSeq
 
 		transport := NewTMemoryBufferWithBuf(r.Request.Data[0:0])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
-		// 直接改写Data
 		protocol.WriteMessageBegin(r.Request.Name, r.Request.TypeId, newSeq)
 	}
 
@@ -95,6 +96,8 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 func (r *Request) RestoreSeqId() {
 	if r.Response.Data != nil {
+		log.Printf("RestoreSeqId SeqNum: %d --> %d\n", r.Response.SeqId, r.Request.SeqId)
+
 		transport := NewTMemoryBufferWithBuf(r.Response.Data[0:0])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
 

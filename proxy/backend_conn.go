@@ -139,8 +139,8 @@ func (bc *BackendConn) loopWriter() error {
 			// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
 			//
 			var flush = len(bc.input) == 0
+			fmt.Printf("Force flush %t\n", flush)
 
-			fmt.Printf("%d\n", flush)
 			if bc.canForward(r) {
 				r.ReplaceSeqId(bc.currentSeqNum)
 
@@ -179,9 +179,16 @@ func (bc *BackendConn) loopWriter() error {
 // 创建一个到"后端服务"的连接
 func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 
-	// 创建连接
+	// 创建连接(只要IP没有问题， err一般就是空)
 	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Second*3)
 
+	if err != nil {
+		// 连接不上，失败
+		return nil, err
+	}
+
+	// 只要服务存在，一般不会出现err
+	err = socket.Open()
 	if err != nil {
 		// 连接不上，失败
 		return nil, err
