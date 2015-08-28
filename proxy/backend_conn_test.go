@@ -3,7 +3,7 @@ package proxy
 import (
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
-	//	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -44,6 +44,7 @@ func TestBackend(t *testing.T) {
 	}
 
 	go func() {
+		// 客户端代码
 		bc := NewBackendConn(addr, nil)
 		defer bc.Close()
 
@@ -54,18 +55,17 @@ func TestBackend(t *testing.T) {
 			bc.input <- requests[i]
 		}
 
+		// 需要等待数据返回?
 		time.Sleep(time.Second * 2)
 
 	}()
 
 	go func() {
+		// 服务器端代码
 		tran, err := transport.Accept()
-		fmt.Println("Error: ", err)
-		//		if err != nil {
-		//			log.ErrorErrorf(err, "Error: %v\n", err)
-		//		} else {
-		//			fmt.Printf("Find Transport: %v\n", tran)
-		//		}
+		if err != nil {
+			log.ErrorErrorf(err, "Error: %v\n", err)
+		}
 		assert.NoError(t, err)
 
 		bt := NewTBufferedFramedTransport(tran, time.Microsecond*100, 2)

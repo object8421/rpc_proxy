@@ -145,8 +145,8 @@ func (p *TBufferedFramedTransport) Flush() error {
 	return p.FlushBuffer(true)
 }
 
-func (p *TBufferedFramedTransport) flushTransport(force bool) error {
-	if force || p.needFlush() {
+func (p *TBufferedFramedTransport) FlushTransport(force bool) error {
+	if p.nbuffered > 0 && (force || p.needFlush()) {
 		// 这个如何控制呢?
 		if err := p.TBufferedTransport.Flush(); err != nil {
 			return err
@@ -157,7 +157,9 @@ func (p *TBufferedFramedTransport) flushTransport(force bool) error {
 	return nil
 }
 
-// 如何Flush呢?
+//
+// 先写入数据，然后再Flush Transport
+//
 func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	size := p.Buffer.Len()
 
@@ -182,7 +184,7 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	p.nbuffered++
 
 	// Flush Buffer
-	return p.flushTransport(force)
+	return p.FlushTransport(force)
 }
 
 func (p *TBufferedFramedTransport) readFrameHeader() (int, error) {

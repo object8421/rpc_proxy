@@ -34,7 +34,7 @@ type BackendConn struct {
 	// seqNum2Request 读写基本上差不多
 	sync.Mutex
 	seqNum2Request map[int32]*Request
-	currentSeqNum  int32 // 范围: 1 ~ 100000
+	currentSeqId   int32 // 范围: 1 ~ 100000
 	State          ConnState
 	Index          int
 	delegate       BackendConnStateChanged
@@ -45,7 +45,7 @@ func NewBackendConn(addr string, delegate BackendConnStateChanged) *BackendConn 
 		addr:           addr,
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
-		currentSeqNum:  1,
+		currentSeqId:   1,
 		State:          ConnStateInit,
 		Index:          -1,
 		delegate:       delegate,
@@ -142,16 +142,18 @@ func (bc *BackendConn) loopWriter() error {
 			fmt.Printf("Force flush %t\n", flush)
 
 			if bc.canForward(r) {
-				r.ReplaceSeqId(bc.currentSeqNum)
 
-				// 主动控制Buffer的flush
+				// 1. 替换新的SeqId
+				r.ReplaceSeqId(bc.currentSeqId)
+
+				// 2. 主动控制Buffer的flush
 				c.Write(r.Request.Data)
 				c.FlushBuffer(flush)
 
 				// 备案(只有loopWriter操作，不加锁)
-				bc.currentSeqNum++
-				if bc.currentSeqNum > 100000 {
-					bc.currentSeqNum = 1
+				bc.currentSeqId++
+				if bc.currentSeqId > 100000 {
+					bc.currentSeqId = 1
 				}
 
 				bc.Lock()
@@ -161,7 +163,7 @@ func (bc *BackendConn) loopWriter() error {
 			} else {
 				// 如果bc不能写入数据，则直接
 
-				if err := c.FlushBuffer(flush); err != nil {
+				if err := c.FlushTransport(flush); err != nil {
 					return bc.setResponse(r, nil, err)
 				}
 
@@ -201,6 +203,8 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 
 		for true {
 			resp, err := c.ReadFrame()
+
+			log.Printf("ReadFrame From Server with Error: %v\n", err)
 			if err != nil {
 				bc.flushRequests(err)
 				break
@@ -230,6 +234,7 @@ func (bc *BackendConn) canForward(r *Request) bool {
 func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	// 表示出现错误了
 	if data == nil {
+		log.Printf("No Data From Server, error: %v\n", err)
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
@@ -239,7 +244,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		if err != nil {
 			return err
 		}
-
+		log.Printf("Data From Server, seqId: %d\n", seqId)
 		// 找到对应的Request
 		bc.Lock()
 		req, ok := bc.seqNum2Request[seqId]
@@ -251,6 +256,8 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		if !ok {
 			return errors.New("Invalid Response")
 		}
+
+		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
 		r = req
 	}
 
