@@ -1,11 +1,12 @@
 // Copyright 2014 Wandoujia Inc. All Rights Reserved.
 // Licensed under the MIT (MIT-LICENSE.txt) license.
 
-package router
+package proxy
 
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
+	"strings"
 	"sync"
 )
 
@@ -66,6 +67,14 @@ func (r *Request) DecodeRequest() {
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
 	r.Request.Name, r.Request.TypeId, r.Request.SeqId, _ = protocol.ReadMessageBegin()
+
+	// 参考 ： TMultiplexedProtocol
+	nameFields := strings.SplitN(r.Request.Name, thrift.MULTIPLEXED_SEPARATOR, 2)
+	if len(nameFields) != 2 {
+		r.Service = ""
+	} else {
+		r.Service = nameFields[0]
+	}
 }
 
 //

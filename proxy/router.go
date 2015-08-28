@@ -1,3 +1,6 @@
+//// Copyright 2014 Wandoujia Inc. All Rights Reserved.
+//// Licensed under the MIT (MIT-LICENSE.txt) license.
+
 package proxy
 
 import (
@@ -5,9 +8,10 @@ import (
 	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
-	zmq "github.com/pebbe/zmq4"
 	"sync"
 	"time"
+
+	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 )
 
 type BackService struct {
@@ -15,9 +19,20 @@ type BackService struct {
 	// 如何处理呢?
 	// 可以使用zeromq本身的连接到多个endpoints的特性，自动负载均衡
 	backend *BackSockets
-	poller  *zmq.Poller
 	topo    *zk.Topology
 	Verbose bool
+}
+
+type Router struct {
+	mu     sync.Mutex
+	pool   map[string]*SharedBackendConn
+	closed bool
+
+	sync.RWMutex
+	Services        map[string]*BackService
+	OfflineServices map[string]*BackService // 在zk中标记下线的
+	topo            *zk.Topology
+	Verbose         bool
 }
 
 // 创建一个BackService
@@ -103,38 +118,22 @@ func (s *BackService) HandleRequest(client_id string, msgs []string) (total int,
 	}
 }
 
-// BackServices通过topology来和zk进行交互
-type BackServices struct {
-	sync.RWMutex
-	Services map[string]*BackService
-
-	// 在zk中标记下线的
-	OfflineServices map[string]*BackService
-
-	poller *zmq.Poller
-	topo   *zk.Topology
-
-	Verbose bool
-}
-
-func NewBackServices(poller *zmq.Poller, productName string, topo *zk.Topology, verbose bool) *BackServices {
-
-	// 创建BackServices
-	result := &BackServices{
+func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
+	r := &Router{
+		pool:            make(map[string]*SharedBackendConn),
 		Services:        make(map[string]*BackService),
 		OfflineServices: make(map[string]*BackService),
-		poller:          poller,
 		topo:            topo,
 		Verbose:         verbose,
 	}
 
 	// 监控服务的变化
-	result.WatchServices()
+	r.WatchServices()
 
-	return result
+	return r
 }
 
-func (bk *BackServices) ReportServices() {
+func (bk *Router) ReportServices() {
 	bk.RLock()
 	log.Info(rpc_commons.Green("Report Service Workers: "))
 	for serviceName, service := range bk.Services {
@@ -143,14 +142,19 @@ func (bk *BackServices) ReportServices() {
 	bk.RUnlock()
 }
 
-func (bk *BackServices) WatchServices() {
+// Router负责监听zk中服务列表的变化
+func (bk *Router) WatchServices() {
 	var evtbus chan interface{} = make(chan interface{}, 2)
+
+	// 1. 保证Service目录存在，否则会报错
 	servicesPath := bk.topo.ProductServicesPath()
-	path, e1 := bk.topo.CreateDir(servicesPath) // 保证Service目录存在，否则会报错
+	path, e1 := bk.topo.CreateDir(servicesPath)
+
 	fmt.Println("Path: ", path, "error: ", e1)
 
 	go func() {
 		for true {
+			// 无限监听
 			services, err := bk.topo.WatchChildren(servicesPath, evtbus)
 
 			if err == nil {
@@ -177,8 +181,8 @@ func (bk *BackServices) WatchServices() {
 	log.Println("ProductName: ", bk.topo.ProductName)
 }
 
-// 添加一个后台服务
-func (bk *BackServices) addBackService(service string) {
+// 添加一个后台服务(非线程安全)
+func (bk *Router) addBackService(service string) {
 
 	backService, ok := bk.Services[service]
 	if !ok {
@@ -187,7 +191,7 @@ func (bk *BackServices) addBackService(service string) {
 	}
 
 }
-func (bk *BackServices) GetBackService(service string) *BackService {
+func (bk *Router) GetBackService(service string) *BackService {
 	bk.RLock()
 	backService, ok := bk.Services[service]
 	bk.RUnlock()
@@ -198,3 +202,53 @@ func (bk *BackServices) GetBackService(service string) *BackService {
 		return nil
 	}
 }
+
+//func (s *Router) Close() error {
+//	//	s.mu.Lock()
+//	//	defer s.mu.Unlock()
+//	//	if s.closed {
+//	//		return nil
+//	//	}
+//	//	for i := 0; i < len(s.slots); i++ {
+//	//		s.resetSlot(i)
+//	//	}
+//	//	s.closed = true
+//	//	return nil
+//}
+
+//var errClosedRouter = errors.New("use of closed router")
+
+//func (s *Router) KeepAlive() error {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	if s.closed {
+//		return errClosedRouter
+//	}
+//	for _, bc := range s.pool {
+//		bc.KeepAlive()
+//	}
+//	return nil
+//}
+
+// 后端如何处理一个Request?
+func (s *Router) Dispatch(r *Request) error {
+	backService := s.GetBackService(r.Service)
+	return backService.HandleRequest(r)
+}
+
+//func (s *Router) getBackendConn(addr string) *SharedBackendConn {
+//	bc := s.pool[addr]
+//	if bc != nil {
+//		bc.IncrRefcnt()
+//	} else {
+//		bc = NewSharedBackendConn(addr, s.auth)
+//		s.pool[addr] = bc
+//	}
+//	return bc
+//}
+
+//func (s *Router) putBackendConn(bc *SharedBackendConn) {
+//	if bc != nil && bc.Close() {
+//		delete(s.pool, bc.Addr())
+//	}
+//}

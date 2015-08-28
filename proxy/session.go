@@ -1,7 +1,7 @@
 // Copyright 2014 Wandoujia Inc. All Rights Reserved.
 // Licensed under the MIT (MIT-LICENSE.txt) license.
 
-package router
+package proxy
 
 import (
 	"encoding/json"
@@ -94,6 +94,8 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 	}()
 
 	defer close(tasks)
+
+	// 从Client读取用户的请求，然后再交给Dispatcher来处理
 	if err := s.loopReader(tasks, d); err != nil {
 		errlist.PushBack(err)
 	}
