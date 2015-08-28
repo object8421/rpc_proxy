@@ -1,60 +1,87 @@
 package proxy
 
-//import (
-//	thrift "git.apache.org/thrift.git/lib/go/thrift"
-//	"git.chunyu.me/infra/rpc_proxy/utils/assert"
-//	"net"
-//	"strconv"
-//	"sync"
-//	"testing"
-//	"time"
-//)
+import (
+	"fmt"
+	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"github.com/stretchr/testify/assert"
+	"testing"
+	"time"
+)
 
-//func TestBackend(t *testing.T) {
-//	l, err := net.Listen("tcp", "127.0.0.1:0")
-//	assert.MustNoError(err)
-//	defer l.Close()
+//
+// go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestBackend"
+//
+func TestBackend(t *testing.T) {
 
-//	addr := l.Addr().String()
-//	reqc := make(chan *Request, 10)
-//	go func() {
-//		// 创建一个BackendConn
-//		bc := NewBackendConn(addr, nil)
-//		defer bc.Close()
-//		defer close(reqc)
+	// 作为一个Server
+	transport, err := thrift.NewTServerSocket("127.0.0.1:0")
+	assert.NoError(t, err)
+	defer transport.Close()
 
-//		for i := 0; i < cap(reqc); i++ {
+	err = transport.Listen()
+	assert.NoError(t, err)
 
-//			data := make([]byte, 1000, 1000)
-//			size := fakeData("hello", thrift.CALL, 0, data[0:0])
-//			data = data[0:size]
+	addr := transport.Addr().String()
 
-//			r := NewRequest(data)
+	fmt.Println("Addr: ", addr)
 
-//			bc.PushBack(r)
-//			reqc <- r
-//		}
-//	}()
+	var requestNum int32 = 10
 
-//	go func() {
-//		c, err := l.Accept()
-//		assert.MustNoError(err)
-//		defer c.Close()
-//		conn := redis.NewConn(c)
-//		time.Sleep(time.Millisecond * 300)
-//		for i := 0; i < cap(reqc); i++ {
-//			_, err := conn.Reader.Decode()
-//			assert.MustNoError(err)
-//			resp := redis.NewString([]byte(strconv.Itoa(i)))
-//			assert.MustNoError(conn.Writer.Encode(resp, true))
-//		}
-//	}()
+	requests := make([]*Request, 0, requestNum)
 
-//	var n int
-//	for r := range reqc {
-//		r.Wait.Wait()
-//		assert.Must(string(r.Response.Resp.Value) == strconv.Itoa(n))
-//		n++
-//	}
-//	assert.Must(n == cap(reqc))
-//}
+	var i int32
+	for i = 0; i < requestNum; i++ {
+		buf := make([]byte, 100, 100)
+		l := fakeData("Hello", thrift.CALL, i, buf[0:0])
+		buf = buf[0:l]
+
+		req := NewRequest(buf)
+
+		requests = append(requests, req)
+	}
+
+	go func() {
+		tran, err := transport.Accept()
+		assert.NoError(t, err)
+
+		bt := NewTBufferedFramedTransport(tran, time.Microsecond*100, 2)
+
+		// 在当前的这个t上读写数据
+		var i int32
+		for i = 0; i < requestNum; i++ {
+			request, err := bt.ReadFrame()
+			assert.NoError(t, err)
+
+			// 回写数据
+			bt.Write(request)
+			bt.FlushBuffer(true)
+
+			req := NewRequest(request)
+
+			assert.Equal(t, req.Request.SeqId, i)
+		}
+
+		tran.Close()
+	}()
+
+	go func() {
+		bc := NewBackendConn(addr, nil)
+		defer bc.Close()
+
+		// 准备发送数据
+		var i int32
+		for i = 0; i < requestNum; i++ {
+			bc.input <- requests[i]
+		}
+
+		bc.Run()
+	}()
+
+	time.Sleep(time.Second)
+
+	fmt.Println("Requests Len: ", len(requests))
+	for _, r := range requests {
+		r.Wait.Wait()
+		assert.Equal(t, len(r.Request.Data), len(r.Response.Data))
+	}
+}
