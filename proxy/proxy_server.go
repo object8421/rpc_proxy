@@ -2,11 +2,11 @@ package proxy
 
 import (
 	"fmt"
+	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
-	zmq "github.com/pebbe/zmq4"
 	"os"
 	"os/signal"
 	"strings"
@@ -46,148 +46,151 @@ func (p *ProxyServer) Run() {
 	topo = zk.NewTopology(p.ProductName, p.ZkAdresses)
 
 	// 3. 读取后端服务的配置
-	poller := zmq.NewPoller()
-	backServices := NewBackServices(poller, p.ProductName, topo, p.Verbose)
 
-	// 4. 创建前端服务
-	frontend, _ := zmq.NewSocket(zmq.ROUTER)
-	defer frontend.Close()
+	thrift.NewTServerSocket(p.FrontendAddr)
 
-	// ROUTER/ROUTER绑定到指定的端口
-	log.Println("---->Bind: ", rpc_commons.Magenta(p.FrontendAddr))
-	frontend.Bind(p.FrontendAddr) //  For clients
+	//	poller := zmq.NewPoller()
+	//	backServices := NewBackServices(poller, p.ProductName, topo, p.Verbose)
 
-	// 开始监听前端服务
-	poller.Add(frontend, zmq.POLLIN)
+	//	// 4. 创建前端服务
+	//	frontend, _ := zmq.NewSocket(zmq.ROUTER)
+	//	defer frontend.Close()
 
-	ch := make(chan os.Signal, 1)
+	//	// ROUTER/ROUTER绑定到指定的端口
+	//	log.Println("---->Bind: ", rpc_commons.Magenta(p.FrontendAddr))
+	//	frontend.Bind(p.FrontendAddr) //  For clients
 
-	if p.Verbose {
-		signal.Notify(ch, syscall.SIGUSR1)
-	}
+	//	// 开始监听前端服务
+	//	poller.Add(frontend, zmq.POLLIN)
 
-	for {
-		var sockets []zmq.Polled
-		var err error
+	//	ch := make(chan os.Signal, 1)
 
-		sockets, err = poller.Poll(HEARTBEAT_INTERVAL)
+	//	if p.Verbose {
+	//		signal.Notify(ch, syscall.SIGUSR1)
+	//	}
 
-		if err != nil {
-			log.Println("Encounter Errors, Services Stoped: ", err)
-			continue
-		}
-		//		else {
-		//			if p.Verbose {
-		//				log.Printf("Sockets: %d\n", len(sockets))
-		//			}
-		//		}
-		for _, socket := range sockets {
-			switch socket.Socket {
+	//	for {
+	//		var sockets []zmq.Polled
+	//		var err error
 
-			case frontend:
-				if p.Verbose {
-					log.Println("----->Message from front: ")
-				}
-				msgs, err := frontend.RecvMessage(0)
+	//		sockets, err = poller.Poll(HEARTBEAT_INTERVAL)
 
-				if err != nil {
-					continue //  Interrupted
-				}
-				var service string
-				var client_id string
+	//		if err != nil {
+	//			log.Println("Encounter Errors, Services Stoped: ", err)
+	//			continue
+	//		}
+	//		//		else {
+	//		//			if p.Verbose {
+	//		//				log.Printf("Sockets: %d\n", len(sockets))
+	//		//			}
+	//		//		}
+	//		for _, socket := range sockets {
+	//			switch socket.Socket {
 
-				if p.Verbose {
-					utils.PrintZeromqMsgs(msgs, "ProxyFrontEnd")
-				}
+	//			case frontend:
+	//				if p.Verbose {
+	//					log.Println("----->Message from front: ")
+	//				}
+	//				msgs, err := frontend.RecvMessage(0)
 
-				// msg格式: <client_id, '', service,  '', other_msgs>
-				client_id, msgs = utils.Unwrap(msgs)
-				service, msgs = utils.Unwrap(msgs)
+	//				if err != nil {
+	//					continue //  Interrupted
+	//				}
+	//				var service string
+	//				var client_id string
 
-				log.Println("Client_id: ", client_id, ", Service: ", service)
+	//				if p.Verbose {
+	//					utils.PrintZeromqMsgs(msgs, "ProxyFrontEnd")
+	//				}
 
-				backService := backServices.GetBackService(service)
+	//				// msg格式: <client_id, '', service,  '', other_msgs>
+	//				client_id, msgs = utils.Unwrap(msgs)
+	//				service, msgs = utils.Unwrap(msgs)
 
-				if backService == nil {
-					log.Println("BackService Not Found...")
-					// 最后一个msg为Thrift编码后的消息
-					thriftMsg := msgs[len(msgs)-1]
-					// XXX: seqId如果不需要，也可以使用固定的数字
-					_, _, seqId, _ := ParseThriftMsgBegin([]byte(thriftMsg))
-					errMsg := GetServiceNotFoundData(service, seqId)
+	//				log.Println("Client_id: ", client_id, ", Service: ", service)
 
-					// <client_id, "", errMsg>
-					if len(msgs) > 1 {
-						frontend.SendMessage(client_id, "", msgs[0:len(msgs)-1], errMsg)
-					} else {
-						frontend.SendMessage(client_id, "", errMsg)
-					}
+	//				backService := backServices.GetBackService(service)
 
-				} else {
-					// <"", client_id, "", msgs>
-					if p.Profile {
-						lastMsg := msgs[len(msgs)-1]
-						msgs = msgs[0 : len(msgs)-1]
-						msgs = append(msgs, fmt.Sprintf("%.4f", float64(time.Now().UnixNano())*1e-9), "", lastMsg)
-						if p.Verbose {
-							log.Println(printList(msgs))
-						}
-					}
-					total, err, errMsg := backService.HandleRequest(client_id, msgs)
-					if errMsg != nil {
-						if p.Verbose {
-							log.Println("backService Error for service: ", service)
-						}
-						if len(msgs) > 1 {
-							frontend.SendMessage(client_id, "", msgs[0:len(msgs)-1], *errMsg)
-						} else {
-							frontend.SendMessage(client_id, "", *errMsg)
-						}
-					} else if err != nil {
-						log.Println(rpc_commons.Red("backService.HandleRequest Error: "), err, ", Total: ", total)
-					}
-				}
-			default:
-				// 除了来自前端的数据，其他的都来自后端
-				msgs, err := socket.Socket.RecvMessage(0)
-				if err != nil {
-					log.Println("Encounter Errors When receiving from background")
-					continue //  Interrupted
-				}
-				if p.Verbose {
-					utils.PrintZeromqMsgs(msgs, "proxy")
-				}
+	//				if backService == nil {
+	//					log.Println("BackService Not Found...")
+	//					// 最后一个msg为Thrift编码后的消息
+	//					thriftMsg := msgs[len(msgs)-1]
+	//					// XXX: seqId如果不需要，也可以使用固定的数字
+	//					_, _, seqId, _ := ParseThriftMsgBegin([]byte(thriftMsg))
+	//					errMsg := GetServiceNotFoundData(service, seqId)
 
-				msgs = utils.TrimLeftEmptyMsg(msgs)
+	//					// <client_id, "", errMsg>
+	//					if len(msgs) > 1 {
+	//						frontend.SendMessage(client_id, "", msgs[0:len(msgs)-1], errMsg)
+	//					} else {
+	//						frontend.SendMessage(client_id, "", errMsg)
+	//					}
 
-				// msgs格式: <client_id, "", rpc_data>
-				//          <control_msg_rpc_data>
-				if len(msgs) == 1 {
-					// 告知后端的服务可能有问题
+	//				} else {
+	//					// <"", client_id, "", msgs>
+	//					if p.Profile {
+	//						lastMsg := msgs[len(msgs)-1]
+	//						msgs = msgs[0 : len(msgs)-1]
+	//						msgs = append(msgs, fmt.Sprintf("%.4f", float64(time.Now().UnixNano())*1e-9), "", lastMsg)
+	//						if p.Verbose {
+	//							log.Println(printList(msgs))
+	//						}
+	//					}
+	//					total, err, errMsg := backService.HandleRequest(client_id, msgs)
+	//					if errMsg != nil {
+	//						if p.Verbose {
+	//							log.Println("backService Error for service: ", service)
+	//						}
+	//						if len(msgs) > 1 {
+	//							frontend.SendMessage(client_id, "", msgs[0:len(msgs)-1], *errMsg)
+	//						} else {
+	//							frontend.SendMessage(client_id, "", *errMsg)
+	//						}
+	//					} else if err != nil {
+	//						log.Println(rpc_commons.Red("backService.HandleRequest Error: "), err, ", Total: ", total)
+	//					}
+	//				}
+	//			default:
+	//				// 除了来自前端的数据，其他的都来自后端
+	//				msgs, err := socket.Socket.RecvMessage(0)
+	//				if err != nil {
+	//					log.Println("Encounter Errors When receiving from background")
+	//					continue //  Interrupted
+	//				}
+	//				if p.Verbose {
+	//					utils.PrintZeromqMsgs(msgs, "proxy")
+	//				}
 
-				} else {
-					if p.Profile {
-						lastMsg := msgs[len(msgs)-1]
-						msgs = msgs[0 : len(msgs)-1]
-						msgs = append(msgs, fmt.Sprintf("%.4f", float64(time.Now().UnixNano())*1e-9), "", lastMsg)
-					}
-					if p.Verbose {
-						log.Println(printList(msgs))
-					}
-					frontend.SendMessage(msgs)
-				}
-			}
-		}
+	//				msgs = utils.TrimLeftEmptyMsg(msgs)
 
-		// Debug
-		if p.Verbose {
-			select {
-			case <-ch:
-				backServices.ReportServices()
-			default:
-			}
-		}
-	}
+	//				// msgs格式: <client_id, "", rpc_data>
+	//				//          <control_msg_rpc_data>
+	//				if len(msgs) == 1 {
+	//					// 告知后端的服务可能有问题
+
+	//				} else {
+	//					if p.Profile {
+	//						lastMsg := msgs[len(msgs)-1]
+	//						msgs = msgs[0 : len(msgs)-1]
+	//						msgs = append(msgs, fmt.Sprintf("%.4f", float64(time.Now().UnixNano())*1e-9), "", lastMsg)
+	//					}
+	//					if p.Verbose {
+	//						log.Println(printList(msgs))
+	//					}
+	//					frontend.SendMessage(msgs)
+	//				}
+	//			}
+	//		}
+
+	//		// Debug
+	//		if p.Verbose {
+	//			select {
+	//			case <-ch:
+	//				backServices.ReportServices()
+	//			default:
+	//			}
+	//		}
+	//	}
 }
 
 func printList(msgs []string) string {
