@@ -71,6 +71,7 @@ func TestBackend(t *testing.T) {
 		// 准备发送数据
 		var i int32
 		for i = 0; i < requestNum; i++ {
+			fmt.Println("Sending Request to Backend Conn", i)
 			bc.input <- requests[i]
 		}
 
