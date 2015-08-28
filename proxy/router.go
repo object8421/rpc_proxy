@@ -10,18 +10,7 @@ import (
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"sync"
 	"time"
-
-	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 )
-
-type BackService struct {
-	ServiceName string
-	// 如何处理呢?
-	// 可以使用zeromq本身的连接到多个endpoints的特性，自动负载均衡
-	backend *BackSockets
-	topo    *zk.Topology
-	Verbose bool
-}
 
 type Router struct {
 	mu     sync.Mutex
@@ -29,102 +18,17 @@ type Router struct {
 	closed bool
 
 	sync.RWMutex
-	Services        map[string]*BackService
-	OfflineServices map[string]*BackService // 在zk中标记下线的
-	topo            *zk.Topology
-	Verbose         bool
-}
-
-// 创建一个BackService
-func NewBackService(serviceName string, poller *zmq.Poller, topo *zk.Topology, verbose bool) *BackService {
-
-	backSockets := NewBackSockets(poller, serviceName, verbose)
-
-	service := &BackService{
-		ServiceName: serviceName,
-		backend:     backSockets,
-		poller:      poller,
-		topo:        topo,
-		Verbose:     verbose,
-	}
-
-	var evtbus chan interface{} = make(chan interface{}, 2)
-	servicePath := topo.ProductServicePath(serviceName)
-
-	go func() {
-		for true {
-			endpoints, err := topo.WatchChildren(servicePath, evtbus)
-
-			if err == nil {
-				// 如何监听endpoints的变化呢?
-				addrSet := make(map[string]bool)
-				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
-				for _, endpoint := range endpoints {
-					// 这些endpoint变化该如何处理呢?
-					log.Println(rpc_commons.Green("---->Find Endpoint: "), endpoint, "For Service: ", serviceName)
-					endpointInfo, _ := topo.GetServiceEndPoint(serviceName, endpoint)
-
-					addr, ok := endpointInfo[rpc_commons.SERVER_ENDPOINT]
-					if ok {
-						addrStr := addr.(string)
-						log.Println(rpc_commons.Green("---->Add endpoint to backend: "), addrStr, nowStr, "For Service: ", serviceName)
-						addrSet[addrStr] = true
-					}
-				}
-
-				service.backend.UpdateEndpointAddrs(addrSet)
-
-				// 等待事件
-				<-evtbus
-			} else {
-				log.WarnErrorf(err, "zk read failed: %s\n", servicePath)
-				// 如果读取失败则，则继续等待5s
-				time.Sleep(time.Duration(5) * time.Second)
-			}
-
-		}
-	}()
-
-	ticker := time.NewTicker(time.Second * 5)
-	go func() {
-		for _ = range ticker.C {
-			service.backend.PurgeEndpoints()
-		}
-	}()
-
-	return service
-
-}
-
-//
-// 将消息发送到Backend上去
-//
-func (s *BackService) HandleRequest(client_id string, msgs []string) (total int, err error, msg *[]byte) {
-
-	backSocket := s.backend.NextSocket()
-	if backSocket == nil {
-		// 没有后端服务
-		if s.Verbose {
-			log.Println(rpc_commons.Red("No BackSocket Found for service:"), s.ServiceName)
-		}
-		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)
-		return 0, nil, &errMsg
-	} else {
-		if s.Verbose {
-			log.Println("SendMessage With: ", backSocket.Addr, "For Service: ", s.ServiceName)
-		}
-		total, err = backSocket.SendMessage("", client_id, "", msgs)
-		return total, err, nil
-	}
+	Services map[string]*BackService
+	topo     *zk.Topology
+	Verbose  bool
 }
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	r := &Router{
-		pool:            make(map[string]*SharedBackendConn),
-		Services:        make(map[string]*BackService),
-		OfflineServices: make(map[string]*BackService),
-		topo:            topo,
-		Verbose:         verbose,
+		pool:     make(map[string]*SharedBackendConn),
+		Services: make(map[string]*BackService),
+		topo:     topo,
+		Verbose:  verbose,
 	}
 
 	// 监控服务的变化
@@ -137,7 +41,7 @@ func (bk *Router) ReportServices() {
 	bk.RLock()
 	log.Info(rpc_commons.Green("Report Service Workers: "))
 	for serviceName, service := range bk.Services {
-		log.Infof("Service: %s, Worker Count: %d\n", serviceName, service.backend.Active)
+		log.Infof("Service: %s, Worker Count: %d\n", serviceName, service.Active())
 	}
 	bk.RUnlock()
 }
@@ -158,15 +62,32 @@ func (bk *Router) WatchServices() {
 			services, err := bk.topo.WatchChildren(servicesPath, evtbus)
 
 			if err == nil {
-				// 保证数据更新是有效的
 				bk.Lock()
+				// 保证数据更新是有效的
+				oldServices := bk.Services
+				bk.Services = make(map[string]*BackService, len(services))
 				for _, service := range services {
-					log.Println("Service: ", service)
-					if _, ok := bk.Services[service]; !ok {
+					log.Println("Found Service: ", service)
+
+					back, ok := oldServices[service]
+					if ok {
+						bk.Services[service] = back
+						delete(oldServices, service)
+					} else {
+
 						bk.addBackService(service)
 					}
 				}
 				bk.Unlock()
+
+				if len(oldServices) > 0 {
+					go func() {
+						for len(oldServices) > 0 {
+							// 遍历，并且关闭
+							// TODO:
+						}
+					}()
+				}
 
 				// 等待事件
 				<-evtbus
@@ -186,7 +107,7 @@ func (bk *Router) addBackService(service string) {
 
 	backService, ok := bk.Services[service]
 	if !ok {
-		backService = NewBackService(service, bk.poller, bk.topo, bk.Verbose)
+		backService = NewBackService(service, bk.topo, bk.Verbose)
 		bk.Services[service] = backService
 	}
 
@@ -233,7 +154,11 @@ func (bk *Router) GetBackService(service string) *BackService {
 // 后端如何处理一个Request?
 func (s *Router) Dispatch(r *Request) error {
 	backService := s.GetBackService(r.Service)
-	return backService.HandleRequest(r)
+	if backService == nil {
+		return nil
+	} else {
+		return backService.HandleRequest(r)
+	}
 }
 
 //func (s *Router) getBackendConn(addr string) *SharedBackendConn {

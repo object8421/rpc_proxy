@@ -43,11 +43,11 @@ func (s *Session) String() string {
 	return string(b)
 }
 
-func NewSession(c *thrift.TSocket) *Session {
+func NewSession(c thrift.TTransport) *Session {
 	return NewSessionSize(c, 1024*32, 1800)
 }
 
-func NewSessionSize(c *thrift.TSocket, bufsize int, timeout int) *Session {
+func NewSessionSize(c thrift.TTransport, bufsize int, timeout int) *Session {
 	s := &Session{CreateUnix: time.Now().Unix()}
 
 	// 还是基于c net.Conn进行读写，只是采用Redis协议进行编码解码

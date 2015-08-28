@@ -4,9 +4,9 @@ import (
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
+	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -30,7 +30,6 @@ func NewProxyServer(config *utils.Config) *ProxyServer {
 		ZkAdresses:   config.ZkAddr,
 		Verbose:      config.Verbose,
 		Profile:      config.Profile,
-		Router:       NewRouter(),
 	}
 	return server
 }
@@ -43,9 +42,14 @@ func (p *ProxyServer) Run() {
 	var topo *zk.Topology
 	topo = zk.NewTopology(p.ProductName, p.ZkAdresses)
 
+	p.Router = NewRouter(p.ProductName, topo, p.Verbose)
+
 	// 3. 读取后端服务的配置
 
-	transport := thrift.NewTServerSocket(p.FrontendAddr)
+	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
+	if err != nil {
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+	}
 
 	// 开始监听
 	transport.Listen()
@@ -61,8 +65,6 @@ func (p *ProxyServer) Run() {
 			go x.Serve(p.Router, 1000)
 		}
 	}()
-
-	NewBackServices
 
 	// Accept什么时候出错，出错之后如何处理呢?
 	for {
