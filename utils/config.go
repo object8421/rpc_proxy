@@ -43,7 +43,7 @@ func (conf *Config) getFrontendAddr(frontHost, ipPrefix, frontPort string) strin
 		}
 	}
 	if frontPort != "" && frontHost != "" {
-		frontendAddr = fmt.Sprintf("tcp://%s:%s", frontHost, frontPort)
+		frontendAddr = fmt.Sprintf("%s:%s", frontHost, frontPort)
 	}
 	return frontendAddr
 }
