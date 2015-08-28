@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
-	rpc_commons "git.chunyu.me/infra/rpc_commons"
+
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"io"
 	"time"
@@ -65,7 +65,7 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 	frameSize, err = p.readFrameHeader()
 	if err != nil {
 		// 在Close一个连接之后可能得到EOF错误
-		log.InfoErrorf(err, "What Error: %v\n", err)
+		log.ErrorErrorf(err, "What Error: %v\n", err)
 		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Header Read Error"))
 		return
 	}
@@ -76,7 +76,7 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 	var l int
 	l, err = p.Reader.Read(bytes)
 
-	log.Printf(rpc_commons.Red("<==== ReadFrame frame size: %d, Got: %d\n"), frameSize, l)
+	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d\n"), frameSize, l)
 
 	if err != nil {
 		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Data Read Error"))

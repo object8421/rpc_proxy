@@ -204,6 +204,7 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Second*3)
 
 	if err != nil {
+		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s\n", err, bc.addr)
 		// 连接不上，失败
 		return nil, err
 	}
@@ -211,11 +212,15 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 	// 只要服务存在，一般不会出现err
 	err = socket.Open()
 	if err != nil {
+		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s\n", err, bc.addr)
 		// 连接不上，失败
 		return nil, err
+	} else {
+		log.Printf("Socket Open Succedd\n")
 	}
 
 	c := NewTBufferedFramedTransport(socket, 300*time.Microsecond, 64)
+	//	c.Open()
 
 	go func() {
 		defer c.Close()
@@ -224,7 +229,7 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 			resp, err := c.ReadFrame()
 
 			if err != nil {
-				log.Printf("ReadFrame From Server with Error: %v\n", err)
+				log.ErrorErrorf(err, "ReadFrame From Server with Error: %v\n", err)
 				bc.flushRequests(err)
 				break
 			} else {

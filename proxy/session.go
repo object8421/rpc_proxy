@@ -103,7 +103,7 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 	}
 }
 
-// 从redis读取数据
+// 从Client读取数据
 func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 	if d == nil {
 		return errors.New("nil dispatcher")
@@ -118,6 +118,7 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 		if err != nil {
 			return err
 		} else {
+			log.Info("Succeed Get Result")
 			tasks <- r
 		}
 	}
@@ -135,13 +136,17 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 		}
 
 		// 2. 将结果写回给Client
+		log.Printf("xxx Session Write back to client: %s, tasks:%d\n", string(r.Response.Data), len(tasks))
+
+		log.Printf("xxx Write Back Frame Length: %d\n", len(r.Response.Data))
 		_, err = s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
+			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
 			return err
 		}
 
 		// 3. Flush
-		err = s.FlushBuffer(len(tasks) == 0)
+		err = s.TBufferedFramedTransport.FlushBuffer(true) // len(tasks) == 0
 		if err != nil {
 			return err
 		}
@@ -153,6 +158,7 @@ var ErrRespIsRequired = errors.New("resp is required")
 
 // 获取可以直接返回给Client的response
 func (s *Session) handleResponse(r *Request) (resp []byte, e error) {
+	// 等待结果的出现
 	r.Wait.Wait()
 
 	// 合并?
@@ -175,6 +181,7 @@ func (s *Session) handleResponse(r *Request) (resp []byte, e error) {
 // 处理来自Client的请求
 func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
+	log.Printf("HandleRequest: %s\n", string(request))
 	r := NewRequest(request)
 
 	// 增加统计

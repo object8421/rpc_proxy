@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"sync"
@@ -56,14 +55,14 @@ func (s *BackService) WatchBackServiceNodes() {
 				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
 				for _, endpoint := range endpoints {
 					// 这些endpoint变化该如何处理呢?
-					log.Println(rpc_commons.Green("---->Find Endpoint: "),
+					log.Println(Green("---->Find Endpoint: "),
 						endpoint, "For Service: ", s.ServiceName)
 					endpointInfo, _ := s.topo.GetServiceEndPoint(s.ServiceName, endpoint)
 
-					addr, ok := endpointInfo[rpc_commons.SERVER_ENDPOINT]
+					addr, ok := endpointInfo[SERVER_ENDPOINT]
 					if ok {
 						addrStr := addr.(string)
-						log.Println(rpc_commons.Green("---->Add endpoint to backend: "),
+						log.Println(Green("---->Add endpoint to backend: "),
 							addrStr, nowStr, "For Service: ", s.ServiceName)
 						addressList = append(addressList, addrStr)
 					}
@@ -125,7 +124,7 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 	if backendConn == nil {
 		// 没有后端服务
 		if s.Verbose {
-			log.Println(rpc_commons.Red("No BackSocket Found for service:"), s.ServiceName)
+			log.Println(Red("No BackSocket Found for service:"), s.ServiceName)
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)

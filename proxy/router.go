@@ -6,7 +6,6 @@ package proxy
 import (
 	"errors"
 	"fmt"
-	rpc_commons "git.chunyu.me/infra/rpc_commons"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"sync"
@@ -40,7 +39,7 @@ func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 
 func (bk *Router) ReportServices() {
 	bk.RLock()
-	log.Info(rpc_commons.Green("Report Service Workers: "))
+	log.Info(Green("Report Service Workers: "))
 	for serviceName, service := range bk.Services {
 		log.Infof("Service: %s, Worker Count: %d\n", serviceName, service.Active())
 	}

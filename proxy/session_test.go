@@ -9,11 +9,34 @@ import (
 	"time"
 )
 
-//
-// go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestBackend"
-//
-func TestBackend(t *testing.T) {
+func init() {
+	log.SetLevel(log.LEVEL_INFO)
+	log.SetFlags(log.Flags() | log.Lshortfile)
+}
 
+type fakeServer struct {
+}
+
+func (p *fakeServer) Dispatch(r *Request) error {
+	log.Printf("Request SeqId: %d, MethodName: %s\n", r.Request.SeqId, r.Request.Name)
+	r.Wait.Add(1)
+	go func() {
+		time.Sleep(time.Millisecond)
+		r.Response.Data = []byte(string(r.Request.Data))
+
+		seqId, _ := DecodeSeqId(r.Response.Data)
+		log.Printf(Green("SeqId: %d\n"), seqId)
+		r.Wait.Done()
+	}()
+	//	r.RestoreSeqId()
+	//	r.Wait.Done()
+	return nil
+}
+
+//
+// go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestSession"
+//
+func TestSession(t *testing.T) {
 	// 作为一个Server
 	transport, err := thrift.NewTServerSocket("127.0.0.1:0")
 	assert.NoError(t, err)
@@ -30,7 +53,6 @@ func TestBackend(t *testing.T) {
 	fmt.Println("Addr: ", addr)
 
 	var requestNum int32 = 10
-
 	requests := make([]*Request, 0, requestNum)
 
 	var i int32
@@ -47,8 +69,8 @@ func TestBackend(t *testing.T) {
 
 		requests = append(requests, req)
 	}
-
 	go func() {
+		// 模拟请求:
 		// 客户端代码
 		bc := NewBackendConn(addr, nil)
 		bc.currentSeqId = 10
@@ -65,47 +87,31 @@ func TestBackend(t *testing.T) {
 
 		// 需要等待数据返回?
 		time.Sleep(time.Second * 2)
-
 	}()
 
+	server := &fakeServer{}
 	go func() {
 		// 服务器端代码
 		tran, err := transport.Accept()
+		defer tran.Close()
 		if err != nil {
 			log.ErrorErrorf(err, "Error: %v\n", err)
 		}
 		assert.NoError(t, err)
 
-		bt := NewTBufferedFramedTransport(tran, time.Microsecond*100, 2)
+		session := NewSession(tran, "")
 
-		// 在当前的这个t上读写数据
-		var i int32
-		for i = 0; i < requestNum; i++ {
-			request, err := bt.ReadFrame()
-			assert.NoError(t, err)
+		session.Serve(server, 6)
 
-			req := NewRequest(request)
-			assert.Equal(t, req.Request.SeqId, i+10)
-			fmt.Printf("Server Got Request, and SeqNum OK, Id: %d, Frame Size: %d\n", i, len(request))
-
-			// 回写数据
-			bt.Write(request)
-			bt.FlushBuffer(true)
-
-		}
-
-		tran.Close()
+		time.Sleep(time.Second * 2)
 	}()
 
-	fmt.Println("Requests Len: ", len(requests))
-	for idx, r := range requests {
-		r.Wait.Wait()
+	for i = 0; i < requestNum; i++ {
+		fmt.Println("===== Before Wait")
+		requests[i].Wait.Wait()
+		fmt.Println("===== Before After Wait")
 
-		// r 原始的请求
-		req := NewRequest(r.Response.Data)
-
-		log.Printf(Green("SeqMatch[%d]: Orig: %d, Return: %d\n"), idx, req.Request.SeqId, r.Request.SeqId)
-		assert.Equal(t, req.Request.SeqId, r.Request.SeqId)
+		log.Printf("Request: %d, .....", i)
+		assert.Equal(t, len(requests[i].Response.Data), len(requests[i].Request.Data))
 	}
-	log.Println("OK")
 }
