@@ -63,6 +63,8 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 	var frameSize int
 	frameSize, err = p.readFrameHeader()
 	if err != nil {
+		// 在Close一个连接之后可能得到EOF错误
+		log.InfoErrorf(err, "What Error: %v\n", err)
 		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Header Read Error"))
 		return
 	}
@@ -169,7 +171,7 @@ func (p *TBufferedFramedTransport) FlushTransport(force bool) error {
 func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	size := p.Buffer.Len()
 
-	log.Printf("----> Frame Size: %d\n", size)
+	//	log.Printf("----> Frame Size: %d\n", size)
 
 	// 1. 将p.buf的大小以BigEndian模式写入: buf中
 	buf := p.LenghW[:4]
@@ -189,7 +191,7 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 			return thrift.NewTTransportExceptionFromError(err)
 		}
 
-		log.Printf("----> Exp: %d, Act: %d\n", size, n)
+		//		log.Printf("----> Exp: %d, Act: %d\n", size, n)
 	}
 
 	p.nbuffered++

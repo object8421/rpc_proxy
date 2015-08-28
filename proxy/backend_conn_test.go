@@ -47,6 +47,7 @@ func TestBackend(t *testing.T) {
 	go func() {
 		// 客户端代码
 		bc := NewBackendConn(addr, nil)
+		bc.currentSeqId = 10
 		defer bc.Close()
 
 		// 准备发送数据
@@ -78,7 +79,7 @@ func TestBackend(t *testing.T) {
 			assert.NoError(t, err)
 
 			req := NewRequest(request)
-			assert.Equal(t, req.Request.SeqId, i+1)
+			assert.Equal(t, req.Request.SeqId, i+10)
 			fmt.Printf("Server Got Request, and SeqNum OK, Id: %d, Frame Size: %d\n", i, len(request))
 
 			// 回写数据
@@ -93,6 +94,9 @@ func TestBackend(t *testing.T) {
 	fmt.Println("Requests Len: ", len(requests))
 	for _, r := range requests {
 		r.Wait.Wait()
+
+		req := NewRequest(r.Response.Data)
+		assert.Equal(t, req.Request.SeqId, r.Request.SeqId)
 		assert.Equal(t, len(r.Request.Data), len(r.Response.Data))
 	}
 }

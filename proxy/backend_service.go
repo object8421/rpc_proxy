@@ -46,6 +46,9 @@ func (s *BackService) Active() int {
 	return len(s.activeConns)
 }
 
+//
+// 如何处理后端服务的变化呢?
+//
 func (s *BackService) WatchBackServiceNodes() {
 	var evtbus chan interface{} = make(chan interface{}, 2)
 	servicePath := s.topo.ProductServicePath(s.ServiceName)

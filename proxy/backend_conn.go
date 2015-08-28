@@ -64,8 +64,17 @@ func (bc *BackendConn) Run() {
 		err := bc.loopWriter()
 
 		if err == nil {
+
 			break
 		} else {
+			// 从Active切换到非正常状态
+			if bc.State == ConnStateActive && bc.delegate != nil {
+				bc.State = ConnStateFailed
+				bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+			} else {
+				bc.State = ConnStateFailed
+			}
+
 			// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
 			for i := len(bc.input); i != 0; i-- {
 				r := <-bc.input
@@ -123,15 +132,18 @@ func (bc *BackendConn) loopWriter() error {
 	// bc.input 实现了前段请求的buffer
 	r, ok := <-bc.input
 
-	var c *TBufferedFramedTransport
-	var err error
-
 	if ok {
-		c, err = bc.newBackendReader()
+		c, err := bc.newBackendReader()
 
 		// 如果出错，则表示连接Redis或授权出问题了
 		if err != nil {
 			return bc.setResponse(r, nil, err)
+		}
+
+		// 现在进入可用状态
+		bc.State = ConnStateActive
+		if bc.delegate != nil {
+			bc.delegate.StateChanged(bc)
 		}
 
 		for ok {
@@ -150,18 +162,17 @@ func (bc *BackendConn) loopWriter() error {
 				c.Write(r.Request.Data)
 				c.FlushBuffer(flush)
 
-				// 备案(只有loopWriter操作，不加锁)
-				bc.currentSeqId++
-				if bc.currentSeqId > 100000 {
-					bc.currentSeqId = 1
-				}
-
+				bc.IncreaseCurrentSeqId()
 				bc.Lock()
 				bc.seqNum2Request[r.Response.SeqId] = r
 				bc.Unlock()
 
 			} else {
-				// 如果bc不能写入数据，则直接
+				// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+				bc.State = ConnStateFailed
+				if bc.delegate != nil {
+					bc.delegate.StateChanged(bc)
+				}
 
 				if err := c.FlushTransport(flush); err != nil {
 					return bc.setResponse(r, nil, err)
@@ -176,6 +187,14 @@ func (bc *BackendConn) loopWriter() error {
 		}
 	}
 	return nil
+}
+
+func (bc *BackendConn) IncreaseCurrentSeqId() int32 {
+	// 备案(只有loopWriter操作，不加锁)
+	bc.currentSeqId++
+	if bc.currentSeqId > 100000 {
+		bc.currentSeqId = 1
+	}
 }
 
 // 创建一个到"后端服务"的连接
@@ -262,6 +281,9 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	}
 
 	r.Response.Data, r.Response.Err = data, err
+	if data != nil {
+		r.RestoreSeqId()
+	}
 
 	// 设置几个控制用的channel
 	if err != nil && r.Failed != nil {
