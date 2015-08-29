@@ -13,8 +13,8 @@ import (
 )
 
 type Router struct {
-	mu     sync.Mutex
-	pool   map[string]*SharedBackendConn
+	mu sync.Mutex
+	//	pool   map[string]*SharedBackendConn
 	closed bool
 
 	sync.RWMutex
@@ -25,7 +25,7 @@ type Router struct {
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	r := &Router{
-		pool:     make(map[string]*SharedBackendConn),
+		//		pool:     make(map[string]*SharedBackendConn),
 		Services: make(map[string]*BackService),
 		topo:     topo,
 		Verbose:  verbose,

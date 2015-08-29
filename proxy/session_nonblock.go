@@ -51,7 +51,7 @@ func NewNonBlockSessionSize(c thrift.TTransport, address string, bufsize int, ti
 	s := &NonBlockSession{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
-		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*200, 20),
+		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*100, 20),
 	}
 
 	// 还是基于c net.Conn进行读写，只是采用Redis协议进行编码解码

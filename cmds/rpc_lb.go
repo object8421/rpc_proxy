@@ -4,7 +4,6 @@
 package main
 
 import (
-	lb "git.chunyu.me/infra/rpc_proxy/lb"
 	proxy "git.chunyu.me/infra/rpc_proxy/proxy"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 )
@@ -20,7 +19,7 @@ func main() {
 		proxy.ConfigCheckRpcLB,
 		// 根据配置创建一个Server
 		func(config *utils.Config) proxy.Server {
-			return lb.NewLoadBalanceServer(config)
+			return proxy.NewThriftLoadBalanceServer(config)
 		})
 
 }

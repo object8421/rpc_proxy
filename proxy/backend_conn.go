@@ -223,7 +223,7 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 		log.Printf("Socket Open Succedd\n")
 	}
 
-	c := NewTBufferedFramedTransport(socket, 300*time.Microsecond, 64)
+	c := NewTBufferedFramedTransport(socket, 100*time.Microsecond, 20)
 	//	c.Open()
 
 	go func() {
@@ -330,44 +330,44 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	return err
 }
 
-//
-// 通过引用计数管理后端的BackendConn
-//
-type SharedBackendConn struct {
-	*BackendConn
-	mu sync.Mutex
+////
+//// 通过引用计数管理后端的BackendConn
+////
+//type SharedBackendConn struct {
+//	*BackendConn
+//	mu sync.Mutex
 
-	refcnt int
-}
+//	refcnt int
+//}
 
-func NewSharedBackendConn(addr string, delegate BackendConnStateChanged) *SharedBackendConn {
-	return &SharedBackendConn{BackendConn: NewBackendConn(addr, delegate), refcnt: 1}
-}
+//func NewSharedBackendConn(addr string, delegate BackendConnStateChanged) *SharedBackendConn {
+//	return &SharedBackendConn{BackendConn: NewBackendConn(addr, delegate), refcnt: 1}
+//}
 
-func (s *SharedBackendConn) Close() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.refcnt <= 0 {
-		log.Panicf("shared backend conn has been closed, close too many times")
-	}
-	if s.refcnt == 1 {
-		s.BackendConn.Close()
-	}
-	s.refcnt--
-	return s.refcnt == 0
-}
+//func (s *SharedBackendConn) Close() bool {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	if s.refcnt <= 0 {
+//		log.Panicf("shared backend conn has been closed, close too many times")
+//	}
+//	if s.refcnt == 1 {
+//		s.BackendConn.Close()
+//	}
+//	s.refcnt--
+//	return s.refcnt == 0
+//}
 
-// Close之后不能再引用
-// socket不能多次打开，必须重建
-//
-func (s *SharedBackendConn) IncrRefcnt() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.refcnt == 0 {
-		log.Panicf("shared backend conn has been closed")
-	}
-	s.refcnt++
-}
+//// Close之后不能再引用
+//// socket不能多次打开，必须重建
+////
+//func (s *SharedBackendConn) IncrRefcnt() {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	if s.refcnt == 0 {
+//		log.Panicf("shared backend conn has been closed")
+//	}
+//	s.refcnt++
+//}
 
 func FormatYYYYmmDDHHMMSS(date time.Time) string {
 	return date.Format("@2006-01-02 15:04:05")
