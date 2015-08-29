@@ -29,7 +29,8 @@ type BackendConn struct {
 	addr string
 	stop sync.Once
 
-	input chan *Request // 输入的请求, 有: 1024个Buffer
+	input    chan *Request // 输入的请求, 有: 1024个Buffer
+	readChan chan bool
 
 	// seqNum2Request 读写基本上差不多
 	sync.Mutex
@@ -44,6 +45,7 @@ func NewBackendConn(addr string, delegate BackendConnStateChanged) *BackendConn 
 	bc := &BackendConn{
 		addr:           addr,
 		input:          make(chan *Request, 1024),
+		readChan:       make(chan bool, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		currentSeqId:   1,
 		State:          ConnStateInit,
@@ -62,18 +64,17 @@ func (bc *BackendConn) Run() {
 	for k := 0; ; k++ {
 		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 		err := bc.loopWriter()
+		// 从Active切换到非正常状态
+		if bc.State == ConnStateActive && bc.delegate != nil {
+			bc.State = ConnStateFailed
+			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+		} else {
+			bc.State = ConnStateFailed
+		}
 
 		if err == nil {
-
 			break
 		} else {
-			// 从Active切换到非正常状态
-			if bc.State == ConnStateActive && bc.delegate != nil {
-				bc.State = ConnStateFailed
-				bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-			} else {
-				bc.State = ConnStateFailed
-			}
 
 			// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
 			for i := len(bc.input); i != 0; i-- {
@@ -127,7 +128,6 @@ func (bc *BackendConn) KeepAlive() bool {
 
 var ErrFailedRequest = errors.New("discard failed request")
 
-// Codis的BackendConn如何实现呢?
 func (bc *BackendConn) loopWriter() error {
 	// bc.input 实现了前段请求的buffer
 	r, ok := <-bc.input
@@ -167,6 +167,8 @@ func (bc *BackendConn) loopWriter() error {
 				bc.seqNum2Request[r.Response.SeqId] = r
 				bc.Unlock()
 
+				bc.readChan <- true
+
 			} else {
 				// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
 				bc.State = ConnStateFailed
@@ -203,6 +205,8 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 	// 创建连接(只要IP没有问题， err一般就是空)
 	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Second*3)
 
+	log.Println(Cyan("Create Socket To: %s\n"), bc.addr)
+
 	if err != nil {
 		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s\n", err, bc.addr)
 		// 连接不上，失败
@@ -226,10 +230,14 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 		defer c.Close()
 
 		for true {
+			// 读取来自后端服务的数据
+			// client <---> proxy <-----> backend_conn <---> rpc_server
+			// ReadFrame需要有一个度? 如果碰到EOF该如何处理呢?
+			<-bc.readChan
 			resp, err := c.ReadFrame()
 
 			if err != nil {
-				log.ErrorErrorf(err, "ReadFrame From Server with Error: %v\n", err)
+				log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v\n"), err)
 				bc.flushRequests(err)
 				break
 			} else {
@@ -242,7 +250,9 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 
 // 处理所有的等待中的请求
 func (b *BackendConn) flushRequests(err error) {
-
+	//	if b.delegate != nil {
+	//		b.delegate.StateChanged(b)
+	//	}
 }
 
 func (bc *BackendConn) canForward(r *Request) bool {

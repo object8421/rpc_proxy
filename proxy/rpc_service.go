@@ -162,6 +162,15 @@ func (p *ThriftRpcServer) Run() {
 	ch := make(chan thrift.TTransport, 4096)
 	defer close(ch)
 
+	// 强制退出? TODO: Graceful退出
+	go func() {
+		<-ch1
+		log.Info(Green("Receive Exit Signals...."))
+		p.Topo.DeleteServiceEndPoint(p.ServiceName, lbServiceName)
+		transport.Interrupt()
+		transport.Close()
+	}()
+
 	go func() {
 		var address string
 		for c := range ch {

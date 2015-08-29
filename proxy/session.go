@@ -74,6 +74,7 @@ func (s *Session) IsClosed() bool {
 func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 	var errlist errors.ErrorList
 	defer func() {
+		log.Printf(Cyan("Session#Serve Over, Print Error List: %d errors\n"), errlist.Len())
 		if err := errlist.First(); err != nil {
 			log.Infof("session [%p] closed: %s, error = %s", s, s, err)
 		} else {
@@ -101,6 +102,7 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 	if err := s.loopReader(tasks, d); err != nil {
 		errlist.PushBack(err)
 	}
+	log.Info(Cyan("loopReader Over, Session#Serve Over"))
 }
 
 // 从Client读取数据
@@ -109,9 +111,13 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 		return errors.New("nil dispatcher")
 	}
 	for !s.quit {
-		// Reader不停地解码， 将Request
+		// client <--> rpc
+		// 从client读取frames
 		request, err := s.ReadFrame()
 		if err != nil {
+			// 遇到EOF等错误，就直接结束loopReader
+			// 结束之前需要和后端的back_conn之间处理好关系?
+			log.Printf(Red("Reader Failed, Remains tasks: %d\n"), len(tasks))
 			return err
 		}
 

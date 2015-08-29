@@ -34,7 +34,9 @@ type TBufferedFramedTransport struct {
 	lastflush   int64 // 单位: ns(1e-9s)
 }
 
-func NewTBufferedFramedTransport(transport thrift.TTransport, maxInterval time.Duration, maxBuffered int) *TBufferedFramedTransport {
+func NewTBufferedFramedTransport(transport thrift.TTransport, maxInterval time.Duration,
+	maxBuffered int) *TBufferedFramedTransport {
+
 	return &TBufferedFramedTransport{
 		TBufferedTransport: thrift.NewTBufferedTransport(transport, 64*1024),
 		maxLength:          DEFAULT_MAX_LENGTH,
@@ -44,7 +46,9 @@ func NewTBufferedFramedTransport(transport thrift.TTransport, maxInterval time.D
 	}
 }
 
-func NewTBufferedFramedTransportMaxLength(transport thrift.TTransport, maxInterval time.Duration, maxBuffered int, maxLength int) *TBufferedFramedTransport {
+func NewTBufferedFramedTransportMaxLength(transport thrift.TTransport,
+	maxInterval time.Duration, maxBuffered int, maxLength int) *TBufferedFramedTransport {
+
 	return &TBufferedFramedTransport{
 		TBufferedTransport: thrift.NewTBufferedTransport(transport, 64*1024),
 		maxLength:          maxLength,

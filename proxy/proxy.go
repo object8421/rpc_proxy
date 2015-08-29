@@ -48,10 +48,11 @@ func (p *ProxyServer) Run() {
 
 	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s\n", err, p.FrontendAddr)
 	}
 
 	// 开始监听
+	//	transport.Open()
 	transport.Listen()
 
 	ch := make(chan thrift.TTransport, 4096)
@@ -78,11 +79,15 @@ func (p *ProxyServer) Run() {
 	for {
 		c, err := transport.Accept()
 		if err != nil {
-			return
+			log.ErrorErrorf(err, "Accept Error: %v\n", err)
+			break
 		} else {
 			ch <- c
 		}
 	}
+
+	fmt.Println("")
+	select {}
 }
 
 func printList(msgs []string) string {

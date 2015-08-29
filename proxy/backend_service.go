@@ -30,6 +30,8 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 		Verbose:     verbose,
 	}
 
+	service.WatchBackServiceNodes()
+
 	return service
 
 }
@@ -71,6 +73,7 @@ func (s *BackService) WatchBackServiceNodes() {
 				// 如何更新BackendConn呢?
 				s.Lock()
 				for _, addr := range addressList {
+
 					conn, ok := s.addr2Conn[addr]
 					if ok {
 						switch conn.State {
@@ -81,7 +84,12 @@ func (s *BackService) WatchBackServiceNodes() {
 							// TODO: 重新开始连接
 						}
 					} else {
-						s.addr2Conn[addr] = NewBackendConn(addr, s)
+						conn := NewBackendConn(addr, s)
+						s.addr2Conn[addr] = conn
+						log.Printf(Red("Add BackendConn to activeConns: %s\n"), addr)
+						//						s.RLock()
+						s.activeConns = append(s.activeConns, conn)
+						//						s.RUnLock()
 					}
 				}
 				s.Unlock()
@@ -111,7 +119,7 @@ func (s *BackService) NextBackendConn() *BackendConn {
 		backSocket = s.activeConns[s.CurrentConnIndex]
 		s.CurrentConnIndex++
 	}
-	s.Unlock()
+	s.RUnlock()
 	return backSocket
 }
 
@@ -129,14 +137,14 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)
 		req.Response.Data = errMsg
-		req.Wait.Done()
+		//		req.Wait.Done()
 
 		return nil
 	} else {
 		if s.Verbose {
 			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.ServiceName)
 		}
-		backendConn.input <- req
+		backendConn.PushBack(req)
 		return nil
 	}
 }
@@ -145,6 +153,7 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 	s.Lock()
 	if conn.State == ConnStateActive {
 		conn.Index = len(s.activeConns)
+		log.Printf(Red("Add BackendConn to activeConns: %s\n"), conn.Addr())
 		s.activeConns = append(s.activeConns, conn)
 	} else {
 		if conn.Index != -1 {
@@ -158,6 +167,8 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 
 				// slice
 				s.activeConns = s.activeConns[0:lastIndex]
+
+				log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
 
 			}
 		}
