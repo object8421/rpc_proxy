@@ -97,17 +97,6 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 
 	defer close(tasks)
 
-	//	// 从Client读取用户的请求，然后再交给Dispatcher来处理
-	//	if err := s.loopReader(tasks, d); err != nil {
-	//		errlist.PushBack(err)
-	//	}
-	//}
-
-	//// 从Client读取数据
-	//func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
-	//	if d == nil {
-	//		return errors.New("nil dispatcher")
-	//	}
 	for !s.quit {
 		// Reader不停地解码， 将Request
 		request, err := s.ReadFrame()
@@ -130,17 +119,12 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 	for r := range tasks {
 		// 1. 等待Request对应的Response
 		//    出错了如何处理呢?
-		_, err := s.handleResponse(r)
-		if err != nil {
-			// TODO: 如果不是Client的问题，服务器最好通知Client发生什么问题了
-			return err
-		}
-
+		s.handleResponse(r)
 		// 2. 将结果写回给Client
 		log.Printf("xxx Session Write back to client: %s, tasks:%d\n", string(r.Response.Data), len(tasks))
 
 		log.Printf("xxx Write Back Frame Length: %d\n", len(r.Response.Data))
-		_, err = s.TBufferedFramedTransport.Write(r.Response.Data)
+		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
 			return err
@@ -156,25 +140,16 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 }
 
 // 获取可以直接返回给Client的response
-func (s *NonBlockSession) handleResponse(r *Request) (resp []byte, e error) {
+func (s *NonBlockSession) handleResponse(r *Request) {
 	// 等待结果的出现
 	r.Wait.Wait()
 
-	// 合并?
-	if r.Coalesce != nil {
-		if err := r.Coalesce(); err != nil {
-			return nil, err
-		}
+	// 将Err转换成为Exception
+	if r.Response.Err != nil {
+		r.Response.Data = GetThriftException(r)
 	}
-	resp, err := r.Response.Data, r.Response.Err
-	if err != nil {
-		return nil, err
-	}
-	if resp == nil {
-		return nil, ErrRespIsRequired
-	}
+
 	incrOpStats(r.OpStr, microseconds()-r.Start)
-	return resp, nil
 }
 
 // 处理来自Client的请求

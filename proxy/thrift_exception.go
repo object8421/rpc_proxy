@@ -42,6 +42,26 @@ func GetWorkerNotFoundData(service string, seqId int32) []byte {
 	return bytes
 }
 
+func GetThriftException(request *Request) []byte {
+	// 构建thrift的Transport
+	transport := thrift.NewTMemoryBufferLen(1024)
+	protocol := thrift.NewTBinaryProtocolTransport(transport)
+
+	msg := fmt.Sprintf("Service: %s, Method: %s, Error: %v",
+		request.Service, request.Request.Name, request.Response.Err)
+
+	// 构建一个Message, 写入Exception
+	exc := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, msg)
+
+	protocol.WriteMessageBegin(request.Service, thrift.EXCEPTION,
+		request.Request.SeqId)
+	exc.Write(protocol)
+	protocol.WriteMessageEnd()
+
+	bytes := transport.Bytes()
+	return bytes
+}
+
 //
 // 解析Thrift数据的Message Header
 //

@@ -233,6 +233,9 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 			// 读取来自后端服务的数据
 			// client <---> proxy <-----> backend_conn <---> rpc_server
 			// ReadFrame需要有一个度? 如果碰到EOF该如何处理呢?
+
+			// io.EOF在两种情况下会出现
+			//
 			<-bc.readChan
 			resp, err := c.ReadFrame()
 
@@ -249,10 +252,23 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 }
 
 // 处理所有的等待中的请求
-func (b *BackendConn) flushRequests(err error) {
-	//	if b.delegate != nil {
-	//		b.delegate.StateChanged(b)
-	//	}
+func (bc *BackendConn) flushRequests(err error) {
+	// 告诉BackendService, 不再接受新的请求
+	if bc.delegate != nil {
+		bc.delegate.StateChanged(bc)
+	}
+
+	bc.Lock()
+	seqRequest := bc.seqNum2Request
+	bc.seqNum2Request = make(map[int32]*Request, 4096)
+	bc.Unlock()
+
+	for _, request := range seqRequest {
+		log.Printf(Red("Handle Failed Request: %s %s"), request.Service, request.Request.Name)
+		request.Response.Err = err
+		request.Wait.Done()
+	}
+
 }
 
 func (bc *BackendConn) canForward(r *Request) bool {

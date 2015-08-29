@@ -136,17 +136,13 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 	for r := range tasks {
 		// 1. 等待Request对应的Response
 		//    出错了如何处理呢?
-		_, err := s.handleResponse(r)
-		if err != nil {
-			// TODO: 如果不是Client的问题，服务器最好通知Client发生什么问题了
-			return err
-		}
+		s.handleResponse(r)
 
 		// 2. 将结果写回给Client
 		log.Printf("xxx Session Write back to client: %s, tasks:%d\n", string(r.Response.Data), len(tasks))
 
 		log.Printf("xxx Write Back Frame Length: %d\n", len(r.Response.Data))
-		_, err = s.TBufferedFramedTransport.Write(r.Response.Data)
+		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
 			return err
@@ -161,28 +157,21 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 	return nil
 }
 
-var ErrRespIsRequired = errors.New("resp is required")
-
-// 获取可以直接返回给Client的response
-func (s *Session) handleResponse(r *Request) (resp []byte, e error) {
+//
+//
+// 等待Request请求的返回: Session最终被Block住
+//
+func (s *Session) handleResponse(r *Request) {
 	// 等待结果的出现
 	r.Wait.Wait()
 
-	// 合并?
-	if r.Coalesce != nil {
-		if err := r.Coalesce(); err != nil {
-			return nil, err
-		}
+	// 将Err转换成为Exception
+	if r.Response.Err != nil {
+		r.Response.Data = GetThriftException(r)
 	}
-	resp, err := r.Response.Data, r.Response.Err
-	if err != nil {
-		return nil, err
-	}
-	if resp == nil {
-		return nil, ErrRespIsRequired
-	}
+
+	// 如何处理Data和Err呢?
 	incrOpStats(r.OpStr, microseconds()-r.Start)
-	return resp, nil
 }
 
 // 处理来自Client的请求

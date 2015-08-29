@@ -210,6 +210,7 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 
 func (p *TBufferedFramedTransport) readFrameHeader() (int, error) {
 	buf := p.LenghR[:4]
+
 	if _, err := io.ReadFull(p.Reader, buf); err != nil {
 		return 0, err
 	}
