@@ -8,16 +8,16 @@ import (
 //
 // 生成Thrift格式的Exception Message
 //
-func GetServiceNotFoundData(service string, seqId int32) []byte {
+func GetServiceNotFoundData(req *Request) []byte {
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
 	// 构建一个Message, 写入Exception
-	msg := fmt.Sprintf("Service: %s Not Found", service)
+	msg := fmt.Sprintf("Service: %s Not Found", req.Service)
 	exc := thrift.NewTApplicationException(thrift.UNKNOWN_APPLICATION_EXCEPTION, msg)
 
-	protocol.WriteMessageBegin(service, thrift.EXCEPTION, seqId)
+	protocol.WriteMessageBegin(req.Request.Name, thrift.EXCEPTION, req.Request.SeqId)
 	exc.Write(protocol)
 	protocol.WriteMessageEnd()
 
@@ -25,16 +25,16 @@ func GetServiceNotFoundData(service string, seqId int32) []byte {
 	return bytes
 }
 
-func GetWorkerNotFoundData(service string, seqId int32) []byte {
+func GetWorkerNotFoundData(req *Request) []byte {
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
 	// 构建一个Message, 写入Exception
-	msg := fmt.Sprintf("Worker: %s Not Found", service)
+	msg := fmt.Sprintf("Worker FOR %s.%s Not Found", req.Service, req.Request.Name)
 	exc := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, msg)
 
-	protocol.WriteMessageBegin(service, thrift.EXCEPTION, seqId)
+	protocol.WriteMessageBegin(req.Request.Name, thrift.EXCEPTION, req.Request.SeqId)
 	exc.Write(protocol)
 	protocol.WriteMessageEnd()
 

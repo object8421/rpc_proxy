@@ -35,7 +35,11 @@ type BackendConnLB struct {
 // 工作模式: Worker创建一个连接到LB, 然后LB得到一个Transport, 接下来的工作就是LB占主导地位了
 //         发送请求，心跳到Worker
 //
-func NewBackendConnLB(transport thrift.TTransport, addr string, delegate BackendConnLBStateChanged) *BackendConnLB {
+func NewBackendConnLB(transport thrift.TTransport, addr string,
+	delegate BackendConnLBStateChanged) *BackendConnLB {
+
+	log.Printf(Green("Add New BackendConnLB to %s\n"), addr)
+
 	bc := &BackendConnLB{
 		transport:      transport,
 		addr:           addr,
@@ -90,12 +94,13 @@ func (bc *BackendConnLB) Addr() string {
 }
 
 func (bc *BackendConnLB) Close() {
-	bc.stop.Do(func() {
-		close(bc.input)
-	})
+	//	bc.stop.Do(func() {
+	//		close(bc.input)
+	//	})
 }
 
 func (bc *BackendConnLB) PushBack(r *Request) {
+	log.Printf("Add New Request To BackendConnLB: %s %s\n", r.Service, r.Request.Name)
 	if r.Wait != nil {
 		r.Wait.Add(1)
 	}
@@ -153,7 +158,13 @@ func (bc *BackendConnLB) loopWriter() error {
 
 				// 2. 主动控制Buffer的flush
 				c.Write(r.Request.Data)
-				c.FlushBuffer(flush)
+				err := c.FlushBuffer(flush)
+
+				if err != nil {
+					log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
+				} else {
+					log.Printf(Cyan("Flush Task to Python RPC Woker\n"))
+				}
 
 				bc.IncreaseCurrentSeqId()
 				bc.Lock()

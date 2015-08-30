@@ -23,13 +23,14 @@ type ThriftLoadBalanceServer struct {
 	Verbose       bool
 	lbServiceName string
 
-	BackendService *BackServiceLB
+	BackendService Dispatcher
 	exitEvt        chan bool
 }
 
 func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
 	log.Printf("FrontAddr: %s\n", Magenta(config.FrontendAddr))
 
+	// 前端对接rpc_proxy
 	p := &ThriftLoadBalanceServer{
 		ZkAddr:       config.ZkAddr,
 		ProductName:  config.ProductName,
@@ -43,6 +44,7 @@ func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
 	p.Topo = zk.NewTopology(p.ProductName, p.ZkAddr)
 	p.lbServiceName = GetServiceIdentity(p.FrontendAddr)
 
+	// 后端对接: 各种python的rpc server
 	p.BackendService = NewBackServiceLB(p.ServiceName, p.BackendAddr, p.Verbose, p.exitEvt)
 	return p
 

@@ -160,7 +160,12 @@ func (bc *BackendConn) loopWriter() error {
 
 				// 2. 主动控制Buffer的flush
 				c.Write(r.Request.Data)
-				c.FlushBuffer(flush)
+				err := c.FlushBuffer(flush)
+				if err != nil {
+					log.ErrorErrorf(err, "Error Write Request to backend Server/LB: %v\n", err)
+				} else {
+					log.Printf("Succeed Write Request to backend Server/LB\n")
+				}
 
 				bc.IncreaseCurrentSeqId()
 				bc.Lock()

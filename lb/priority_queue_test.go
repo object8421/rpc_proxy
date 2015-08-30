@@ -1,25 +1,25 @@
-package lb
+//package lb
 
-import (
-	"container/heap"
-	"git.chunyu.me/infra/rpc_proxy/utils/assert"
+//import (
+//	"container/heap"
+//	"git.chunyu.me/infra/rpc_proxy/utils/assert"
 
-	"testing"
-)
+//	"testing"
+//)
 
-func TestPriorityQueue(t *testing.T) {
-	pq := make(PriorityQueue, 0)
-	heap.Push(&pq, &Worker{Identity: "hello", priority: 10})
-	heap.Push(&pq, &Worker{Identity: "h20", priority: 20})
-	topItem := heap.Pop(&pq)
+//func TestPriorityQueue(t *testing.T) {
+//	pq := make(PriorityQueue, 0)
+//	heap.Push(&pq, &Worker{Identity: "hello", priority: 10})
+//	heap.Push(&pq, &Worker{Identity: "h20", priority: 20})
+//	topItem := heap.Pop(&pq)
 
-	t.Log("TopItem: ", topItem.(*Worker).Identity, topItem.(*Worker).priority)
-	assert.Must(topItem.(*Worker).Identity == "h20")
-	//	assert.Must(topItem.(*Item).value == "hello")
+//	t.Log("TopItem: ", topItem.(*Worker).Identity, topItem.(*Worker).priority)
+//	assert.Must(topItem.(*Worker).Identity == "h20")
+//	//	assert.Must(topItem.(*Item).value == "hello")
 
-	topItem = heap.Pop(&pq)
-	t.Log("TopItem: ", topItem.(*Worker).Identity, topItem.(*Worker).priority)
+//	topItem = heap.Pop(&pq)
+//	t.Log("TopItem: ", topItem.(*Worker).Identity, topItem.(*Worker).priority)
 
-	assert.Must(true)
+//	assert.Must(true)
 
-}
+//}

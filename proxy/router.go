@@ -37,6 +37,19 @@ func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	return r
 }
 
+//
+// 后端如何处理一个Request
+//
+func (s *Router) Dispatch(r *Request) error {
+	backService := s.GetBackService(r.Service)
+	if backService == nil {
+		r.Response.Data = GetServiceNotFoundData(r)
+		return nil
+	} else {
+		return backService.HandleRequest(r)
+	}
+}
+
 func (bk *Router) ReportServices() {
 	bk.RLock()
 	log.Info(Green("Report Service Workers: "))
@@ -146,16 +159,6 @@ func (s *Router) KeepAlive() error {
 	//		bc.KeepAlive()
 	//	}
 	return nil
-}
-
-// 后端如何处理一个Request?
-func (s *Router) Dispatch(r *Request) error {
-	backService := s.GetBackService(r.Service)
-	if backService == nil {
-		return nil
-	} else {
-		return backService.HandleRequest(r)
-	}
 }
 
 //func (s *Router) getBackendConn(addr string) *SharedBackendConn {

@@ -19,6 +19,7 @@ type BackServiceLB struct {
 
 	Verbose bool
 	exitEvt chan bool
+	ch      chan thrift.TTransport
 }
 
 // 创建一个BackService
@@ -30,10 +31,40 @@ func NewBackServiceLB(serviceName string, backendAddr string, verbose bool, exit
 		activeConns: make([]*BackendConnLB, 0, 10),
 		Verbose:     verbose,
 		exitEvt:     exitEvt,
+		ch:          make(chan thrift.TTransport, 4096),
 	}
+
 	service.Run()
 	return service
 
+}
+
+//
+// 后端如何处理一个Request, 处理完毕之后直接返回，因为Caller已经做好异步处理了
+//
+func (s *BackServiceLB) Dispatch(r *Request) error {
+	backendConn := s.NextBackendConn()
+
+	if backendConn == nil {
+		// 没有后端服务
+		if s.Verbose {
+			log.Println(Red("No BackSocket Found for service:"), s.ServiceName)
+		}
+		// 从errMsg来构建异常
+		errMsg := GetWorkerNotFoundData(r)
+		r.Response.Data = errMsg
+
+		return nil
+	} else {
+		if s.Verbose {
+			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.ServiceName)
+		}
+		backendConn.PushBack(r)
+
+		r.Wait.Wait()
+
+		return nil
+	}
 }
 
 func (s *BackServiceLB) Run() {
@@ -48,8 +79,13 @@ func (s *BackServiceLB) Run() {
 	// 开始监听
 	transport.Listen()
 
-	ch := make(chan thrift.TTransport, 4096)
-	defer close(ch)
+	log.Printf(Green("LB Backend Services listens at: %s\n"), s.BackendAddr)
+
+	if s.ch != nil {
+		defer close(s.ch)
+		s.ch = nil
+	}
+	s.ch = make(chan thrift.TTransport, 4096)
 
 	// 强制退出? TODO: Graceful退出
 	go func() {
@@ -60,7 +96,7 @@ func (s *BackServiceLB) Run() {
 	}()
 
 	go func() {
-		for c := range ch {
+		for c := range s.ch {
 			// 为每个Connection建立一个Session
 			socket, ok := c.(*thrift.TSocket)
 			// 会自动加入到active中
@@ -79,7 +115,7 @@ func (s *BackServiceLB) Run() {
 			if err != nil {
 				return
 			} else {
-				ch <- c
+				s.ch <- c
 			}
 		}
 	}()
@@ -96,6 +132,7 @@ func (s *BackServiceLB) NextBackendConn() *BackendConnLB {
 	var backSocket *BackendConnLB
 	s.RLock()
 	if len(s.activeConns) == 0 {
+		log.Printf(Cyan("ActiveConns Len 0\n"))
 		backSocket = nil
 	} else {
 		if s.CurrentConnIndex >= len(s.activeConns) {
@@ -103,42 +140,11 @@ func (s *BackServiceLB) NextBackendConn() *BackendConnLB {
 		}
 		backSocket = s.activeConns[s.CurrentConnIndex]
 		s.CurrentConnIndex++
+
+		log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %s\n"), len(s.activeConns), s.CurrentConnIndex)
 	}
 	s.RUnlock()
 	return backSocket
-}
-
-//
-// 后端如何处理一个Request, 处理完毕之后直接返回，因为Caller已经做好异步处理了
-//
-func (s *BackServiceLB) Dispatch(r *Request) error {
-
-	////
-	//// 将消息发送到Backend上去
-	////
-	//func (s *BackServiceLB) HandleRequest(req *Request) (err error) {
-	backendConn := s.NextBackendConn()
-
-	if backendConn == nil {
-		// 没有后端服务
-		if s.Verbose {
-			log.Println(Red("No BackSocket Found for service:"), s.ServiceName)
-		}
-		// 从errMsg来构建异常
-		errMsg := GetWorkerNotFoundData(s.ServiceName, r.Request.SeqId)
-		r.Response.Data = errMsg
-
-		return nil
-	} else {
-		if s.Verbose {
-			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.ServiceName)
-		}
-		backendConn.PushBack(r)
-
-		r.Wait.Wait()
-
-		return nil
-	}
 }
 
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
@@ -157,12 +163,11 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 				lastConn.Index = conn.Index
 				conn.Index = -1
 
-				// slice
-				s.activeConns = s.activeConns[0:lastIndex]
-
-				log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
-
 			}
+			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
+			// slice
+			s.activeConns = s.activeConns[0:lastIndex]
+
 		}
 	}
 	s.Unlock()

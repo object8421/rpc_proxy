@@ -138,7 +138,7 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 			log.Println(Red("No BackSocket Found for service:"), s.ServiceName)
 		}
 		// 从errMsg来构建异常
-		errMsg := GetWorkerNotFoundData(s.ServiceName, 0)
+		errMsg := GetWorkerNotFoundData(req)
 		req.Response.Data = errMsg
 		//		req.Wait.Done()
 
