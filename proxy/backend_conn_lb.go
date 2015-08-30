@@ -16,6 +16,7 @@ type BackendConnLBStateChanged interface {
 
 type BackendConnLB struct {
 	transport thrift.TTransport
+	addr      string
 	stop      sync.Once
 
 	input    chan *Request // 输入的请求, 有: 1024个Buffer
@@ -30,9 +31,14 @@ type BackendConnLB struct {
 	delegate       BackendConnLBStateChanged
 }
 
-func NewBackendConnLB(transport thrift.TTransport, delegate BackendConnStateChanged) *BackendConnLB {
-	bc := &BackendConn{
+//
+// 工作模式: Worker创建一个连接到LB, 然后LB得到一个Transport, 接下来的工作就是LB占主导地位了
+//         发送请求，心跳到Worker
+//
+func NewBackendConnLB(transport thrift.TTransport, addr string, delegate BackendConnLBStateChanged) *BackendConnLB {
+	bc := &BackendConnLB{
 		transport:      transport,
+		addr:           addr,
 		input:          make(chan *Request, 1024),
 		readChan:       make(chan bool, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),

@@ -119,18 +119,3 @@ func (p *ThriftLoadBalanceServer) Run() {
 		}
 	}
 }
-
-//
-// 后端如何处理一个Request
-//
-func (p *ThriftLoadBalanceServer) Dispatch(r *Request) error {
-	transport := NewTMemoryBufferWithBuf(r.Request.Data)
-	ip := thrift.NewTBinaryProtocolTransport(transport)
-
-	transport = NewTMemoryBufferLen(1024)
-	op := thrift.NewTBinaryProtocolTransport(transport)
-	p.Processor.Process(ip, op)
-
-	r.Response.Data = transport.Bytes()
-	return nil
-}

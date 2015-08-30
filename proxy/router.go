@@ -137,14 +137,14 @@ func (s *Router) Close() error {
 var errClosedRouter = errors.New("use of closed router")
 
 func (s *Router) KeepAlive() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return errClosedRouter
-	}
-	for _, bc := range s.pool {
-		bc.KeepAlive()
-	}
+	//	s.mu.Lock()
+	//	defer s.mu.Unlock()
+	//	if s.closed {
+	//		return errClosedRouter
+	//	}
+	//	for _, bc := range s.pool {
+	//		bc.KeepAlive()
+	//	}
 	return nil
 }
 
