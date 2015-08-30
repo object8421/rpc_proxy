@@ -100,9 +100,11 @@ func (s *BackServiceLB) Run() {
 		for c := range s.ch {
 			// 为每个Connection建立一个Session
 			socket, ok := c.(*thrift.TSocket)
-			// 会自动加入到active中
 			if ok {
-				conn := NewBackendConnLB(socket, socket.Addr().String(), s)
+				backendAddr := socket.Addr().String()
+				conn := NewBackendConnLB(socket, s.ServiceName, backendAddr, s, s.Verbose)
+
+				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
 				s.Lock()
 				s.activeConns = append(s.activeConns, conn)
 				s.Unlock()
