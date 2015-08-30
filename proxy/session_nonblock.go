@@ -110,7 +110,7 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		go func() {
 			// 异步执行
 			r, _ := s.handleRequest(request, d)
-			log.Info("Succeed Get Result")
+			//			log.Info("Succeed Get Result")
 			tasks <- r
 		}()
 	}
@@ -157,7 +157,7 @@ func (s *NonBlockSession) handleResponse(r *Request) {
 // 处理来自Client的请求
 func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
-	log.Printf("HandleRequest: %s\n", string(request))
+	//	log.Printf("HandleRequest: %s\n", string(request))
 	r := NewRequest(request)
 
 	// 增加统计

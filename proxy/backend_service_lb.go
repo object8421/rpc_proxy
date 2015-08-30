@@ -10,14 +10,14 @@ import (
 // Proxy中用来和后端服务通信的模块
 //
 type BackServiceLB struct {
-	ServiceName string
-	BackendAddr string
+	serviceName string
+	backendAddr string
 
 	sync.RWMutex
 	activeConns      []*BackendConnLB // 每一个BackendConn应该有一定的高可用保障
-	CurrentConnIndex int
+	currentConnIndex int
 
-	Verbose bool
+	verbose bool
 	exitEvt chan bool
 	ch      chan thrift.TTransport
 }
@@ -26,15 +26,15 @@ type BackServiceLB struct {
 func NewBackServiceLB(serviceName string, backendAddr string, verbose bool, exitEvt chan bool) *BackServiceLB {
 
 	service := &BackServiceLB{
-		ServiceName: serviceName,
-		BackendAddr: backendAddr,
+		serviceName: serviceName,
+		backendAddr: backendAddr,
 		activeConns: make([]*BackendConnLB, 0, 10),
-		Verbose:     verbose,
+		verbose:     verbose,
 		exitEvt:     exitEvt,
 		ch:          make(chan thrift.TTransport, 4096),
 	}
 
-	service.Run()
+	service.run()
 	return service
 
 }
@@ -43,12 +43,12 @@ func NewBackServiceLB(serviceName string, backendAddr string, verbose bool, exit
 // 后端如何处理一个Request, 处理完毕之后直接返回，因为Caller已经做好异步处理了
 //
 func (s *BackServiceLB) Dispatch(r *Request) error {
-	backendConn := s.NextBackendConn()
+	backendConn := s.nextBackendConn()
 
 	if backendConn == nil {
 		// 没有后端服务
-		if s.Verbose {
-			log.Println(Red("No BackSocket Found for service:"), s.ServiceName)
+		if s.verbose {
+			log.Println(Red("No BackSocket Found for service:"), s.serviceName)
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(r)
@@ -57,8 +57,8 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 
 		return nil
 	} else {
-		if s.Verbose {
-			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.ServiceName)
+		if s.verbose {
+			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.serviceName)
 		}
 		backendConn.PushBack(r)
 
@@ -68,30 +68,31 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 	}
 }
 
-func (s *BackServiceLB) Run() {
+func (s *BackServiceLB) run() {
 	// 3. 读取后端服务的配置
-	transport, err := thrift.NewTServerSocket(s.BackendAddr)
+	transport, err := thrift.NewTServerSocket(s.backendAddr)
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		panic("BackendAddr Invalid")
 	}
 
-	transport.Open()
+	err = transport.Open()
+	if err != nil {
+		log.ErrorErrorf(err, "Server Socket Open Failed: %v\n", err)
+		panic("Server Socket Open Failed")
+	}
 
-	// 开始监听
+	// 和transport.open做的事情一样，如果Open没错，则Listen也不会有问题
 	transport.Listen()
 
-	log.Printf(Green("LB Backend Services listens at: %s\n"), s.BackendAddr)
+	log.Printf(Green("LB Backend Services listens at: %s\n"), s.backendAddr)
 
-	if s.ch != nil {
-		defer close(s.ch)
-		s.ch = nil
-	}
 	s.ch = make(chan thrift.TTransport, 4096)
 
 	// 强制退出? TODO: Graceful退出
 	go func() {
 		<-s.exitEvt
-		log.Info(Green("Receive Exit Signals...."))
+		log.Info(Red("Receive Exit Signals...."))
 		transport.Interrupt()
 		transport.Close()
 	}()
@@ -102,7 +103,7 @@ func (s *BackServiceLB) Run() {
 			socket, ok := c.(*thrift.TSocket)
 			if ok {
 				backendAddr := socket.Addr().String()
-				conn := NewBackendConnLB(socket, s.ServiceName, backendAddr, s, s.Verbose)
+				conn := NewBackendConnLB(socket, s.serviceName, backendAddr, s, s.verbose)
 
 				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
 				s.Lock()
@@ -132,47 +133,55 @@ func (s *BackServiceLB) Active() int {
 }
 
 // 获取下一个active状态的BackendConn
-func (s *BackServiceLB) NextBackendConn() *BackendConnLB {
+func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 
 	// TODO: 暂时采用RoundRobin的方法，可以采用其他具有优先级排列的方法
 	var backSocket *BackendConnLB
 	s.RLock()
 	if len(s.activeConns) == 0 {
-		log.Printf(Cyan("ActiveConns Len 0\n"))
+		if s.verbose {
+			log.Printf(Cyan("ActiveConns Len 0\n"))
+		}
 		backSocket = nil
 	} else {
-		if s.CurrentConnIndex >= len(s.activeConns) {
-			s.CurrentConnIndex = 0
+		if s.currentConnIndex >= len(s.activeConns) {
+			s.currentConnIndex = 0
 		}
-		backSocket = s.activeConns[s.CurrentConnIndex]
-		s.CurrentConnIndex++
-
-		log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %s\n"), len(s.activeConns), s.CurrentConnIndex)
+		backSocket = s.activeConns[s.currentConnIndex]
+		s.currentConnIndex++
+		if s.verbose {
+			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %s\n"), len(s.activeConns), s.currentConnIndex)
+		}
 	}
 	s.RUnlock()
 	return backSocket
 }
 
+// 只有在conn出现错误时才会调用
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
-	return
 	s.Lock()
 	if conn.State == ConnStateActive {
-		conn.Index = len(s.activeConns)
-		log.Printf(Red("Add BackendConn to activeConns: %s\n"), conn.Addr4Log())
-		s.activeConns = append(s.activeConns, conn)
+		log.Printf(Magenta("Unexpected BackendConnLB State\n"))
 	} else {
+		// 从数组中删除一个元素(O(1)的操作)
 		if conn.Index != -1 {
+			// 1. 和最后一个元素进行交换
 			lastIndex := len(s.activeConns) - 1
 			if lastIndex != conn.Index {
 				lastConn := s.activeConns[lastIndex]
+
 				// 将最后一个元素和当前的元素交换位置
 				s.activeConns[conn.Index] = lastConn
 				lastConn.Index = conn.Index
+
+				// 删除引用
+				s.activeConns[lastIndex] = nil
 				conn.Index = -1
 
 			}
 			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr4Log())
-			// slice
+
+			// 2. slice
 			s.activeConns = s.activeConns[0:lastIndex]
 
 		}

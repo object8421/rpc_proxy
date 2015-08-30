@@ -14,16 +14,15 @@ import (
 // Thrift Server的参数
 //
 type ThriftLoadBalanceServer struct {
-	ZkAddr        string
-	ProductName   string
-	ServiceName   string
-	FrontendAddr  string
-	BackendAddr   string
-	Topo          *zk.Topology
-	Verbose       bool
-	lbServiceName string
-
-	BackendService Dispatcher
+	productName    string
+	serviceName    string
+	frontendAddr   string // 绑定的端口
+	backendAddr    string
+	lbServiceName  string
+	topo           *zk.Topology // ZK相关
+	zkAddr         string
+	verbose        bool
+	backendService *BackServiceLB
 	exitEvt        chan bool
 }
 
@@ -32,20 +31,20 @@ func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
 
 	// 前端对接rpc_proxy
 	p := &ThriftLoadBalanceServer{
-		ZkAddr:       config.ZkAddr,
-		ProductName:  config.ProductName,
-		ServiceName:  config.Service,
-		FrontendAddr: config.FrontendAddr,
-		BackendAddr:  config.BackAddr,
-		Verbose:      config.Verbose,
+		zkAddr:       config.ZkAddr,
+		productName:  config.ProductName,
+		serviceName:  config.Service,
+		frontendAddr: config.FrontendAddr,
+		backendAddr:  config.BackAddr,
+		verbose:      config.Verbose,
 		exitEvt:      make(chan bool),
 	}
 
-	p.Topo = zk.NewTopology(p.ProductName, p.ZkAddr)
-	p.lbServiceName = GetServiceIdentity(p.FrontendAddr)
+	p.topo = zk.NewTopology(p.productName, p.zkAddr)
+	p.lbServiceName = GetServiceIdentity(p.frontendAddr)
 
 	// 后端对接: 各种python的rpc server
-	p.BackendService = NewBackServiceLB(p.ServiceName, p.BackendAddr, p.Verbose, p.exitEvt)
+	p.backendService = NewBackServiceLB(p.serviceName, p.backendAddr, p.verbose, p.exitEvt)
 	return p
 
 }
@@ -65,14 +64,14 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	// 注册服务
 	evtExit := make(chan interface{})
-	RegisterService(p.ServiceName, p.FrontendAddr, p.lbServiceName, p.Topo, evtExit)
+	RegisterService(p.serviceName, p.frontendAddr, p.lbServiceName, p.topo, evtExit)
 
 	//	var suideTime time.Time
 
 	//	isAlive := true
 
 	// 3. 读取后端服务的配置
-	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
+	transport, err := thrift.NewTServerSocket(p.frontendAddr)
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
 	}
@@ -89,7 +88,7 @@ func (p *ThriftLoadBalanceServer) Run() {
 	go func() {
 		<-ch1
 		log.Info(Green("Receive Exit Signals...."))
-		p.Topo.DeleteServiceEndPoint(p.ServiceName, p.lbServiceName)
+		p.topo.DeleteServiceEndPoint(p.serviceName, p.lbServiceName)
 		transport.Interrupt()
 		transport.Close()
 	}()
@@ -105,9 +104,9 @@ func (p *ThriftLoadBalanceServer) Run() {
 			} else {
 				address = "unknow"
 			}
-			x := NewNonBlockSession(c, address, p.Verbose)
+			x := NewNonBlockSession(c, address, p.verbose)
 			// Session独立处理自己的请求
-			go x.Serve(p.BackendService, 1000)
+			go x.Serve(p.backendService, 1000)
 		}
 	}()
 

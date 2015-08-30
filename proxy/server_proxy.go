@@ -15,21 +15,21 @@ const (
 )
 
 type ProxyServer struct {
-	ProductName  string
-	FrontendAddr string
-	ZkAdresses   string
-	Verbose      bool
-	Profile      bool
-	Router       *Router
+	productName string
+	proxyAddr   string
+	zkAdresses  string
+	verbose     bool
+	profile     bool
+	router      *Router
 }
 
 func NewProxyServer(config *utils.Config) *ProxyServer {
 	server := &ProxyServer{
-		ProductName:  config.ProductName,
-		FrontendAddr: config.ProxyAddr,
-		ZkAdresses:   config.ZkAddr,
-		Verbose:      config.Verbose,
-		Profile:      config.Profile,
+		productName: config.ProductName,
+		proxyAddr:   config.ProxyAddr,
+		zkAdresses:  config.ZkAddr,
+		verbose:     config.Verbose,
+		profile:     config.Profile,
 	}
 	return server
 }
@@ -40,15 +40,15 @@ func NewProxyServer(config *utils.Config) *ProxyServer {
 func (p *ProxyServer) Run() {
 	// 1. 创建到zk的连接
 	var topo *zk.Topology
-	topo = zk.NewTopology(p.ProductName, p.ZkAdresses)
+	topo = zk.NewTopology(p.productName, p.zkAdresses)
 
-	p.Router = NewRouter(p.ProductName, topo, p.Verbose)
+	p.router = NewRouter(p.productName, topo, p.verbose)
 
 	// 3. 读取后端服务的配置
 
-	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
+	transport, err := thrift.NewTServerSocket(p.proxyAddr)
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s\n", err, p.FrontendAddr)
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s\n", err, p.proxyAddr)
 	}
 
 	// 开始监听
@@ -69,9 +69,9 @@ func (p *ProxyServer) Run() {
 			} else {
 				address = "unknow"
 			}
-			x := NewSession(c, address)
+			x := NewSession(c, address, p.verbose)
 			// Session独立处理自己的请求
-			go x.Serve(p.Router, 1000)
+			go x.Serve(p.router, 1000)
 		}
 	}()
 

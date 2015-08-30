@@ -132,7 +132,7 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 				log.Info("Succeed Get Result")
 			}
 
-			// 将请求交给: tasks
+			// 将请求交给: tasks, 同一个Session中的请求是
 			tasks <- r
 		}
 	}
@@ -147,7 +147,9 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 		s.handleResponse(r)
 
 		// 2. 将结果写回给Client
-		log.Printf("Session#loopWriter --> client[%d]: %s\n", len(r.Response.Data), Cyan(string(r.Response.Data)))
+		if s.verbose {
+			log.Printf("Session#loopWriter --> client[%d]: %s\n", len(r.Response.Data), Cyan(string(r.Response.Data)))
+		}
 
 		// r.Response.Data ---> Client
 		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
@@ -188,7 +190,9 @@ func (s *Session) handleResponse(r *Request) {
 // 处理来自Client的请求
 func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
-	log.Printf("HandleRequest: %s\n", string(request))
+	if s.verbose {
+		log.Printf("HandleRequest: %s\n", string(request))
+	}
 	r := NewRequest(request)
 
 	// 增加统计

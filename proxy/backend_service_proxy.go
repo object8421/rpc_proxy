@@ -11,26 +11,26 @@ import (
 // Proxy中用来和后端服务通信的模块
 //
 type BackService struct {
-	ServiceName string
+	serviceName string
 	topo        *zk.Topology
 
 	sync.RWMutex
 	activeConns      []*BackendConn // 每一个BackendConn应该有一定的高可用保障
-	CurrentConnIndex int
+	currentConnIndex int
 	addr2Conn        map[string]*BackendConn
 
-	Verbose bool
+	verbose bool
 }
 
 // 创建一个BackService
 func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackService {
 
 	service := &BackService{
-		ServiceName: serviceName,
+		serviceName: serviceName,
 		activeConns: make([]*BackendConn, 0, 10),
 		addr2Conn:   make(map[string]*BackendConn),
 		topo:        topo,
-		Verbose:     verbose,
+		verbose:     verbose,
 	}
 
 	service.WatchBackServiceNodes()
@@ -48,7 +48,7 @@ func (s *BackService) Active() int {
 //
 func (s *BackService) WatchBackServiceNodes() {
 	var evtbus chan interface{} = make(chan interface{}, 2)
-	servicePath := s.topo.ProductServicePath(s.ServiceName)
+	servicePath := s.topo.ProductServicePath(s.serviceName)
 
 	go func() {
 		for true {
@@ -61,14 +61,14 @@ func (s *BackService) WatchBackServiceNodes() {
 				for _, endpoint := range endpoints {
 					// 这些endpoint变化该如何处理呢?
 					log.Println(Green("---->Find Endpoint: "),
-						endpoint, "For Service: ", s.ServiceName)
-					endpointInfo, _ := s.topo.GetServiceEndPoint(s.ServiceName, endpoint)
+						endpoint, "For Service: ", s.serviceName)
+					endpointInfo, _ := s.topo.GetServiceEndPoint(s.serviceName, endpoint)
 
 					addr, ok := endpointInfo[SERVER_ENDPOINT]
 					if ok {
 						addrStr := addr.(string)
 						log.Println(Green("---->Add endpoint to backend: "),
-							addrStr, nowStr, "For Service: ", s.ServiceName)
+							addrStr, nowStr, "For Service: ", s.serviceName)
 						addressList = append(addressList, addrStr)
 					}
 				}
@@ -116,11 +116,11 @@ func (s *BackService) NextBackendConn() *BackendConn {
 	if len(s.activeConns) == 0 {
 		backSocket = nil
 	} else {
-		if s.CurrentConnIndex >= len(s.activeConns) {
-			s.CurrentConnIndex = 0
+		if s.currentConnIndex >= len(s.activeConns) {
+			s.currentConnIndex = 0
 		}
-		backSocket = s.activeConns[s.CurrentConnIndex]
-		s.CurrentConnIndex++
+		backSocket = s.activeConns[s.currentConnIndex]
+		s.currentConnIndex++
 	}
 	s.RUnlock()
 	return backSocket
@@ -134,8 +134,8 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 
 	if backendConn == nil {
 		// 没有后端服务
-		if s.Verbose {
-			log.Println(Red("No BackSocket Found for service:"), s.ServiceName)
+		if s.verbose {
+			log.Println(Red("No BackSocket Found for service:"), s.serviceName)
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(req)
@@ -144,8 +144,8 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 
 		return nil
 	} else {
-		if s.Verbose {
-			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.ServiceName)
+		if s.verbose {
+			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.serviceName)
 		}
 		backendConn.PushBack(req)
 		return nil
