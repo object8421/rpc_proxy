@@ -161,36 +161,45 @@ func (bc *BackendConn) loopWriter() error {
 				// 2. 主动控制Buffer的flush
 				c.Write(r.Request.Data)
 				err := c.FlushBuffer(flush)
-				if err != nil {
-					log.ErrorErrorf(err, "Error Write Request to backend Server/LB: %v\n", err)
-				} else {
+
+				if err == nil {
 					log.Printf("Succeed Write Request to backend Server/LB\n")
+					bc.IncreaseCurrentSeqId()
+					bc.Lock()
+					if len(bc.seqNum2Request) != 0 {
+						log.Printf(Red("Invalid SeqNum2Request Size: %d\n"), len(bc.seqNum2Request))
+						for k, v := range bc.seqNum2Request {
+							log.Printf(Red("K: %d, V: %p-%v\n"), k, v, v)
+						}
+
+					}
+					bc.seqNum2Request[r.Response.SeqId] = r
+					bc.Unlock()
+
+					bc.readChan <- true
+
+					// 读取
+					r, ok = <-bc.input
+					continue
 				}
-
-				bc.IncreaseCurrentSeqId()
-				bc.Lock()
-				bc.seqNum2Request[r.Response.SeqId] = r
-				bc.Unlock()
-
-				bc.readChan <- true
-
-			} else {
-				// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-				bc.State = ConnStateFailed
-				if bc.delegate != nil {
-					bc.delegate.StateChanged(bc)
-				}
-
-				if err := c.FlushTransport(flush); err != nil {
-					return bc.setResponse(r, nil, err)
-				}
-
-				// 请求压根就没有发送
-				bc.setResponse(r, nil, ErrFailedRequest)
 			}
+
+			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+			bc.State = ConnStateFailed
+			if bc.delegate != nil {
+				bc.delegate.StateChanged(bc)
+			}
+
+			if err := c.FlushTransport(flush); err != nil {
+				return bc.setResponse(r, nil, err)
+			}
+
+			// 请求压根就没有发送
+			bc.setResponse(r, nil, ErrFailedRequest)
 
 			// 继续读取请求, 如果有异常，如何处理呢?
 			r, ok = <-bc.input
+			break
 		}
 	}
 	return nil
@@ -208,9 +217,9 @@ func (bc *BackendConn) IncreaseCurrentSeqId() {
 func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 
 	// 创建连接(只要IP没有问题， err一般就是空)
-	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Second*3)
+	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Hour*3)
 
-	log.Println(Cyan("Create Socket To: %s\n"), bc.addr)
+	log.Printf(Cyan("Create Socket To: %s\n"), bc.addr)
 
 	if err != nil {
 		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s\n", err, bc.addr)
@@ -277,11 +286,12 @@ func (bc *BackendConn) flushRequests(err error) {
 }
 
 func (bc *BackendConn) canForward(r *Request) bool {
-	if r.Failed != nil && r.Failed.Get() {
-		return false
-	} else {
-		return true
-	}
+	return bc.State == ConnStateActive
+	//	if r.Failed != nil && r.Failed.Get() {
+	//		return false
+	//	} else {
+	//		return true
+	//	}
 }
 
 // 配对 Request, resp, err

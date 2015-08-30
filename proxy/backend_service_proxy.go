@@ -153,6 +153,7 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 }
 
 func (s *BackService) StateChanged(conn *BackendConn) {
+	return
 	s.Lock()
 	if conn.State == ConnStateActive {
 		conn.Index = len(s.activeConns)

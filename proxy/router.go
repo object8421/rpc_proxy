@@ -25,7 +25,6 @@ type Router struct {
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	r := &Router{
-		//		pool:     make(map[string]*SharedBackendConn),
 		Services: make(map[string]*BackService),
 		topo:     topo,
 		Verbose:  verbose,

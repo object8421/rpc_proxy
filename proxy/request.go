@@ -73,12 +73,13 @@ func (r *Request) DecodeRequest() {
 //
 func (r *Request) ReplaceSeqId(newSeq int32) {
 	if r.Request.Data != nil {
-		log.Printf("Replace SeqNum: %d --> %d\n", r.Request.SeqId, newSeq)
+		log.Printf(Green("Replace SeqNum: %d --> %d\n"), r.Request.SeqId, newSeq)
 		r.Response.SeqId = newSeq
 
 		start := len(r.Service)
 		if start > 0 {
 			start += 1 // ":"
+			log.Printf("Service: %s, Name: %s\n", r.Service, r.Request.Name)
 		}
 		transport := NewTMemoryBufferWithBuf(r.Request.Data[start:start])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
@@ -86,6 +87,7 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 		// 将service从name中剥离出去
 		r.Request.Data = r.Request.Data[start:len(r.Request.Data)]
+		log.Printf(Green("Request Data Frame: %d\n"), len(r.Request.Data))
 	}
 
 }

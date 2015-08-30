@@ -20,6 +20,7 @@ func GetServiceNotFoundData(req *Request) []byte {
 	protocol.WriteMessageBegin(req.Request.Name, thrift.EXCEPTION, req.Request.SeqId)
 	exc.Write(protocol)
 	protocol.WriteMessageEnd()
+	protocol.Flush()
 
 	bytes := transport.Bytes()
 	return bytes
@@ -43,6 +44,7 @@ func GetWorkerNotFoundData(req *Request) []byte {
 }
 
 func GetThriftException(request *Request) []byte {
+
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)

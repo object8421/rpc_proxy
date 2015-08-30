@@ -20,7 +20,7 @@ type ProxyServer struct {
 	ZkAdresses   string
 	Verbose      bool
 	Profile      bool
-	Router       Dispatcher
+	Router       *Router
 }
 
 func NewProxyServer(config *utils.Config) *ProxyServer {

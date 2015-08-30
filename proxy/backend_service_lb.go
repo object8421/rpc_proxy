@@ -52,12 +52,13 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(r)
+		log.Printf(Magenta("---->Convert Error Back to Exception:[%d] %s\n"), len(errMsg), string(errMsg))
 		r.Response.Data = errMsg
 
 		return nil
 	} else {
 		if s.Verbose {
-			log.Println("SendMessage With: ", backendConn.Addr(), "For Service: ", s.ServiceName)
+			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.ServiceName)
 		}
 		backendConn.PushBack(r)
 
@@ -101,7 +102,10 @@ func (s *BackServiceLB) Run() {
 			socket, ok := c.(*thrift.TSocket)
 			// 会自动加入到active中
 			if ok {
-				NewBackendConnLB(socket, socket.Addr().String(), s)
+				conn := NewBackendConnLB(socket, socket.Addr().String(), s)
+				s.Lock()
+				s.activeConns = append(s.activeConns, conn)
+				s.Unlock()
 			} else {
 				panic("Unexpected Socket Type")
 			}
@@ -148,10 +152,11 @@ func (s *BackServiceLB) NextBackendConn() *BackendConnLB {
 }
 
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
+	return
 	s.Lock()
 	if conn.State == ConnStateActive {
 		conn.Index = len(s.activeConns)
-		log.Printf(Red("Add BackendConn to activeConns: %s\n"), conn.Addr())
+		log.Printf(Red("Add BackendConn to activeConns: %s\n"), conn.Addr4Log())
 		s.activeConns = append(s.activeConns, conn)
 	} else {
 		if conn.Index != -1 {
@@ -164,7 +169,7 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 				conn.Index = -1
 
 			}
-			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
+			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr4Log())
 			// slice
 			s.activeConns = s.activeConns[0:lastIndex]
 

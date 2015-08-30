@@ -16,7 +16,7 @@ type BackendConnLBStateChanged interface {
 
 type BackendConnLB struct {
 	transport thrift.TTransport
-	addr      string
+	addr4Log  string
 	stop      sync.Once
 
 	input    chan *Request // 输入的请求, 有: 1024个Buffer
@@ -42,7 +42,7 @@ func NewBackendConnLB(transport thrift.TTransport, addr string,
 
 	bc := &BackendConnLB{
 		transport:      transport,
-		addr:           addr,
+		addr4Log:       addr,
 		input:          make(chan *Request, 1024),
 		readChan:       make(chan bool, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
@@ -59,38 +59,35 @@ func NewBackendConnLB(transport thrift.TTransport, addr string,
 // 不断建立到后端的逻辑，负责: BackendConn#input到redis的数据的输入和返回
 //
 func (bc *BackendConnLB) Run() {
-	log.Infof("backend conn [%p] to %s, start service", bc, bc.addr)
-	for k := 0; ; k++ {
-		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
-		err := bc.loopWriter()
-		// 从Active切换到非正常状态
-		if bc.State == ConnStateActive && bc.delegate != nil {
-			bc.State = ConnStateFailed
-			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-		} else {
-			bc.State = ConnStateFailed
-		}
+	log.Infof("backend conn [%p] to %s, start service", bc, bc.addr4Log)
 
-		if err == nil {
-			break
-		} else {
-
-			// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
-			for i := len(bc.input); i != 0; i-- {
-				r := <-bc.input
-				bc.setResponse(r, nil, err)
-			}
-		}
-
-		// 然后等待，继续尝试新的连接
-		log.WarnErrorf(err, "backend conn [%p] to %s, restart [%d]", bc, bc.addr, k)
-		time.Sleep(time.Millisecond * 50)
+	// 1. 首先BackendConn将当前 input中的数据写到后端服务中
+	err := bc.loopWriter()
+	// 从Active切换到非正常状态
+	if bc.State == ConnStateActive && bc.delegate != nil {
+		bc.State = ConnStateFailed
+		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+	} else {
+		bc.State = ConnStateFailed
 	}
-	log.Infof("backend conn [%p] to %s, stop and exit", bc, bc.addr)
+
+	if err == nil {
+		// 正常结束吧?
+		return
+	} else {
+
+		// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
+		for i := len(bc.input); i != 0; i-- {
+			r := <-bc.input
+			bc.setResponse(r, nil, err)
+		}
+	}
+
+	log.Infof("backend conn [%p] to %s, stop and exit", bc, bc.addr4Log)
 }
 
-func (bc *BackendConnLB) Addr() string {
-	return bc.addr
+func (bc *BackendConnLB) Addr4Log() string {
+	return bc.addr4Log
 }
 
 func (bc *BackendConnLB) Close() {
@@ -206,29 +203,7 @@ func (bc *BackendConnLB) IncreaseCurrentSeqId() {
 // 创建一个到"后端服务"的连接
 func (bc *BackendConnLB) newBackendReader() (*TBufferedFramedTransport, error) {
 
-	// 创建连接(只要IP没有问题， err一般就是空)
-	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Second*3)
-
-	log.Println(Cyan("Create Socket To: %s\n"), bc.addr)
-
-	if err != nil {
-		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s\n", err, bc.addr)
-		// 连接不上，失败
-		return nil, err
-	}
-
-	// 只要服务存在，一般不会出现err
-	err = socket.Open()
-	if err != nil {
-		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s\n", err, bc.addr)
-		// 连接不上，失败
-		return nil, err
-	} else {
-		log.Printf("Socket Open Succedd\n")
-	}
-
-	c := NewTBufferedFramedTransport(socket, 100*time.Microsecond, 20)
-	//	c.Open()
+	c := NewTBufferedFramedTransport(bc.transport, 100*time.Microsecond, 20)
 
 	go func() {
 		defer c.Close()
@@ -240,11 +215,11 @@ func (bc *BackendConnLB) newBackendReader() (*TBufferedFramedTransport, error) {
 
 			// io.EOF在两种情况下会出现
 			//
-			<-bc.readChan
+			// rpc_server ---> backend_conn
 			resp, err := c.ReadFrame()
 
 			if err != nil {
-				log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v\n"), err)
+				log.ErrorErrorf(err, Red("ReadFrame From rpc_server with Error: %v\n"), err)
 				bc.flushRequests(err)
 				break
 			} else {

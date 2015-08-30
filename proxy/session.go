@@ -117,7 +117,7 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 		if err != nil {
 			// 遇到EOF等错误，就直接结束loopReader
 			// 结束之前需要和后端的back_conn之间处理好关系?
-			log.Printf(Red("Reader Failed, Remains tasks: %d\n"), len(tasks))
+			log.ErrorErrorf(err, Red("ReadFrame Error: %v\n"), err)
 			return err
 		}
 
@@ -133,15 +133,16 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 }
 
 func (s *Session) loopWriter(tasks <-chan *Request) error {
+	// Proxy: Session ---> Client
 	for r := range tasks {
 		// 1. 等待Request对应的Response
 		//    出错了如何处理呢?
 		s.handleResponse(r)
 
 		// 2. 将结果写回给Client
-		log.Printf("xxx Session Write back to client: %s, tasks:%d\n", string(r.Response.Data), len(tasks))
+		log.Printf("Session#loopWriter --> client[%d]: %s\n", len(r.Response.Data), Cyan(string(r.Response.Data)))
 
-		log.Printf("xxx Write Back Frame Length: %d\n", len(r.Response.Data))
+		// r.Response.Data ---> Client
 		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
@@ -151,6 +152,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 		// 3. Flush
 		err = s.TBufferedFramedTransport.FlushBuffer(true) // len(tasks) == 0
 		if err != nil {
+			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
 			return err
 		}
 	}
@@ -167,7 +169,9 @@ func (s *Session) handleResponse(r *Request) {
 
 	// 将Err转换成为Exception
 	if r.Response.Err != nil {
+
 		r.Response.Data = GetThriftException(r)
+		log.Printf(Magenta("---->Convert Error Back to Exception: %s\n"), string(r.Response.Data))
 	}
 
 	// 如何处理Data和Err呢?
