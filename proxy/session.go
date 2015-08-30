@@ -23,9 +23,10 @@ type Session struct {
 	LastOpUnix    int64
 	CreateUnix    int64
 
-	quit   bool
-	failed atomic2.Bool
-	closed atomic2.Bool
+	quit    bool
+	failed  atomic2.Bool
+	closed  atomic2.Bool
+	verbose bool
 }
 
 // 返回当前Session的状态
@@ -43,21 +44,22 @@ func (s *Session) String() string {
 	return string(b)
 }
 
-func NewSession(c thrift.TTransport, address string) *Session {
-	return NewSessionSize(c, address, 1024*32, 1800)
+// c： client <---> proxy之间的连接
+func NewSession(c thrift.TTransport, address string, verbose bool) *Session {
+	return NewSessionSize(c, address, verbose, 1024*32, 1800)
 }
 
-func NewSessionSize(c thrift.TTransport, address string, bufsize int, timeout int) *Session {
+func NewSessionSize(c thrift.TTransport, address string, verbose bool, bufsize int, timeout int) *Session {
 	s := &Session{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
+		verbose:                  verbose,
 		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*100, 20),
 	}
 
-	// 还是基于c net.Conn进行读写，只是采用Redis协议进行编码解码
 	// Reader 处理Client发送过来的消息
 	// Writer 将后端服务的数据返回给Client
-	log.Infof("session [%p] create: %s", s, s)
+	log.Infof(Green("NewSession To: %s\n"), s.RemoteAddress)
 	return s
 }
 
@@ -74,11 +76,12 @@ func (s *Session) IsClosed() bool {
 func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 	var errlist errors.ErrorList
 	defer func() {
-		log.Printf(Cyan("Session#Serve Over, Print Error List: %d errors\n"), errlist.Len())
+		log.Printf(Red("Session Over: %s, Print Error List: %d errors\n"), s.RemoteAddress, errlist.Len())
+
 		if err := errlist.First(); err != nil {
-			log.Infof("session [%p] closed: %s, error = %s", s, s, err)
+			log.Infof("session [%p] closed, error = %s", s, s, err)
 		} else {
-			log.Infof("session [%p] closed: %s, quit", s, s)
+			log.Infof("session [%p] closed, quit", s, s)
 		}
 	}()
 
@@ -125,7 +128,11 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 		if err != nil {
 			return err
 		} else {
-			log.Info("Succeed Get Result")
+			if s.verbose {
+				log.Info("Succeed Get Result")
+			}
+
+			// 将请求交给: tasks
 			tasks <- r
 		}
 	}

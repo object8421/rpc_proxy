@@ -23,9 +23,10 @@ type NonBlockSession struct {
 	LastOpUnix    int64
 	CreateUnix    int64
 
-	quit   bool
-	failed atomic2.Bool
-	closed atomic2.Bool
+	quit    bool
+	failed  atomic2.Bool
+	closed  atomic2.Bool
+	verbose bool
 }
 
 // 返回当前Session的状态
@@ -43,14 +44,15 @@ func (s *NonBlockSession) String() string {
 	return string(b)
 }
 
-func NewNonBlockSession(c thrift.TTransport, address string) *NonBlockSession {
-	return NewNonBlockSessionSize(c, address, 1024*32, 1800)
+func NewNonBlockSession(c thrift.TTransport, address string, verbose bool) *NonBlockSession {
+	return NewNonBlockSessionSize(c, address, verbose, 1024*32, 1800)
 }
 
-func NewNonBlockSessionSize(c thrift.TTransport, address string, bufsize int, timeout int) *NonBlockSession {
+func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool, bufsize int, timeout int) *NonBlockSession {
 	s := &NonBlockSession{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
+		verbose:                  verbose,
 		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*100, 20),
 	}
 

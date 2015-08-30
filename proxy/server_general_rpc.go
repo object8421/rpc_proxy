@@ -182,7 +182,7 @@ func (p *ThriftRpcServer) Run() {
 			} else {
 				address = "unknow"
 			}
-			x := NewNonBlockSession(c, address)
+			x := NewNonBlockSession(c, address, p.Verbose)
 			// Session独立处理自己的请求
 			go x.Serve(p, 1000)
 		}
