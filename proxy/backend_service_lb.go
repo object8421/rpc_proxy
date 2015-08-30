@@ -45,6 +45,8 @@ func NewBackServiceLB(serviceName string, backendAddr string, verbose bool, exit
 func (s *BackServiceLB) Dispatch(r *Request) error {
 	backendConn := s.nextBackendConn()
 
+	r.Service = s.serviceName
+
 	if backendConn == nil {
 		// 没有后端服务
 		if s.verbose {
@@ -150,7 +152,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 		backSocket = s.activeConns[s.currentConnIndex]
 		s.currentConnIndex++
 		if s.verbose {
-			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %s\n"), len(s.activeConns), s.currentConnIndex)
+			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d\n"), len(s.activeConns), s.currentConnIndex)
 		}
 	}
 	s.RUnlock()
@@ -162,6 +164,9 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 	s.Lock()
 	if conn.State == ConnStateActive {
 		log.Printf(Magenta("Unexpected BackendConnLB State\n"))
+		if s.verbose {
+			panic("Unexpected BackendConnLB State")
+		}
 	} else {
 		// 从数组中删除一个元素(O(1)的操作)
 		if conn.Index != -1 {

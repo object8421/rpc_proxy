@@ -236,6 +236,7 @@ func (bc *BackendConnLB) loopReader(c *TBufferedFramedTransport) {
 func (bc *BackendConnLB) flushRequests(err error) {
 	// 告诉BackendService, 不再接受新的请求
 	if bc.delegate != nil {
+		bc.State = ConnStateFailed
 		bc.delegate.StateChanged(bc)
 	}
 
@@ -269,7 +270,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
-		seqId, err := DecodeSeqId(data)
+		typeId, seqId, err := DecodeThriftTypIdSeqId(data)
 
 		// 解码错误，直接报错
 		if err != nil {
@@ -290,6 +291,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
 		r = req
+		r.Response.TypeId = typeId
 	}
 
 	r.Response.Data, r.Response.Err = data, err

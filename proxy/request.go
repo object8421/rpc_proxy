@@ -31,9 +31,10 @@ type Request struct {
 
 	// 返回的数据类型
 	Response struct {
-		Data  []byte
-		Err   error
-		SeqId int32 // -1保留，表示没有对应的SeqNum
+		Data   []byte
+		Err    error
+		SeqId  int32 // -1保留，表示没有对应的SeqNum
+		TypeId thrift.TMessageType
 	}
 
 	Wait *sync.WaitGroup
@@ -52,6 +53,11 @@ func NewRequest(data []byte) *Request {
 	return request
 
 }
+
+//
+// 从Request.Data中读取出 Request的Name, TypeId, SeqId
+// RequestName可能和thrift package中的name不一致，Service部分从Name中剔除
+//
 func (r *Request) DecodeRequest() {
 	transport := NewTMemoryBufferWithBuf(r.Request.Data)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
@@ -69,7 +75,7 @@ func (r *Request) DecodeRequest() {
 }
 
 //
-// 将Request中的SeqNum进行替换
+// 将Request中的SeqNum进行替换（修改Request部分的数据)
 //
 func (r *Request) ReplaceSeqId(newSeq int32) {
 	if r.Request.Data != nil {
@@ -94,20 +100,25 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 func (r *Request) RestoreSeqId() {
 	if r.Response.Data != nil {
+
 		log.Printf("RestoreSeqId SeqNum: %d --> %d\n", r.Response.SeqId, r.Request.SeqId)
 
 		transport := NewTMemoryBufferWithBuf(r.Response.Data[0:0])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
 
 		// 切换回原始的SeqId
-		protocol.WriteMessageBegin(r.Request.Name, r.Request.TypeId, r.Request.SeqId)
+		// r.Response.TypeId 和 r.Request.TypeId可能不一样，要以Response为准
+		protocol.WriteMessageBegin(r.Request.Name, r.Response.TypeId, r.Request.SeqId)
 	}
 }
 
-func DecodeSeqId(data []byte) (seqId int32, err error) {
+//
+// 给定thrift Message, 解码出: typeId, seqId
+//
+func DecodeThriftTypIdSeqId(data []byte) (typeId thrift.TMessageType, seqId int32, err error) {
 	transport := NewTMemoryBufferWithBuf(data)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
-	_, _, seqId, err = protocol.ReadMessageBegin()
+	_, typeId, seqId, err = protocol.ReadMessageBegin()
 	return
 }

@@ -149,6 +149,9 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 		// 2. 将结果写回给Client
 		if s.verbose {
 			log.Printf("Session#loopWriter --> client[%d]: %s\n", len(r.Response.Data), Cyan(string(r.Response.Data)))
+
+			r1 := NewRequest(r.Response.Data)
+			log.Printf("====> Service: %s, Name: %s, Seq: %d, Type: %d\n", r1.Service, r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
 		}
 
 		// r.Response.Data ---> Client

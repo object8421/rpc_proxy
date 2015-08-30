@@ -9,6 +9,8 @@ import (
 // 生成Thrift格式的Exception Message
 //
 func GetServiceNotFoundData(req *Request) []byte {
+	req.Response.TypeId = thrift.EXCEPTION
+
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
@@ -27,6 +29,8 @@ func GetServiceNotFoundData(req *Request) []byte {
 }
 
 func GetWorkerNotFoundData(req *Request) []byte {
+	req.Response.TypeId = thrift.EXCEPTION
+
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
@@ -43,18 +47,19 @@ func GetWorkerNotFoundData(req *Request) []byte {
 	return bytes
 }
 
-func GetThriftException(request *Request) []byte {
+func GetThriftException(req *Request) []byte {
+	req.Response.TypeId = thrift.EXCEPTION
 
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
-	msg := fmt.Sprintf("Service: %s, Method: %s, Error: %v", request.Service, request.Request.Name, request.Response.Err)
+	msg := fmt.Sprintf("Service: %s, Method: %s, Error: %v", req.Service, req.Request.Name, req.Response.Err)
 
 	// 构建一个Message, 写入Exception
 	exc := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, msg)
 
-	protocol.WriteMessageBegin(request.Service, thrift.EXCEPTION, request.Request.SeqId)
+	protocol.WriteMessageBegin(req.Service, thrift.EXCEPTION, req.Request.SeqId)
 	exc.Write(protocol)
 	protocol.WriteMessageEnd()
 
