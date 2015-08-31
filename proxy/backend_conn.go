@@ -247,8 +247,6 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 			bc.seqNum2Request[r.Response.SeqId] = r
 			bc.Unlock()
 
-			// 读取
-			r, ok = <-bc.input
 		} else {
 			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
 			return bc.setResponse(r, nil, err)
