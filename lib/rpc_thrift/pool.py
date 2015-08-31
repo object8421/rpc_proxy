@@ -43,6 +43,12 @@ class ConnectionPool(object):
     :param int size: the maximum number of concurrently open connections
     :param kwargs: keyword arguments passed to
                    :py:class:`happybase.Connection`
+
+    用法:
+        pool = ConnectionPool(10, "127.0.0.1:5550")
+        with pool.base_protocol() as base_protocol:
+            protocol = get_service_protocol("typo", base_protocol)
+            client = Client(protocol)
     """
     def __init__(self, size, endpoint):
         if not isinstance(size, int):
@@ -56,23 +62,23 @@ class ConnectionPool(object):
         self._queue = Queue.LifoQueue(maxsize=size)
 
         for i in xrange(size):
-            connection = get_base_protocol_4_pool(endpoint)
-            self._queue.put(connection)
+            base_protocol = get_base_protocol_4_pool(endpoint)
+            self._queue.put(base_protocol)
 
 
-    def _acquire_connection(self, timeout=None):
+    def _acquire_base_protocol(self, timeout=None):
         """Acquire a connection from the pool."""
         try:
             return self._queue.get(True, timeout)
         except Queue.Empty:
-            raise NoConnectionsAvailable("No base protocol available from pool within specified timeout")
+            raise NoConnectionsAvailable("No base_protocol available from pool within specified timeout")
 
-    def _return_connection(self, connection):
+    def _return_base_protocol(self, base_protocol):
         """Return a connection to the pool."""
-        self._queue.put(connection)
+        self._queue.put(base_protocol)
 
     @contextlib.contextmanager
-    def connection(self, timeout=None):
+    def base_protocol(self, timeout=None):
         """
         Obtain a connection from the pool.
 
@@ -91,6 +97,6 @@ class ConnectionPool(object):
         :return: active connection from the pool
         :rtype: :py:class:`happybase.Connection`
         """
-        connection = self._acquire_connection(timeout)
-        yield connection
-        self._return_connection(connection)
+        base_protocol = self._acquire_base_protocol(timeout)
+        yield base_protocol
+        self._return_base_protocol(base_protocol)
