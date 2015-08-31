@@ -57,7 +57,6 @@ func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendCo
 
 func (bc *BackendConn) Heartbeat() {
 	go func() {
-		bc.hbTicker = time.NewTicker(time.Second)
 		bc.hbLastTime = time.Now().Unix()
 		for true {
 			select {
@@ -197,11 +196,12 @@ func (bc *BackendConn) Run() {
 //
 func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
+	bc.hbTicker = time.NewTicker(time.Second)
+	defer bc.hbTicker.Stop()
+
 	bc.MarkConnActiveOK() // 准备接受数据
 	bc.loopReader(c)      // 异步
 	bc.Heartbeat()        // 建立连接之后，就启动HB
-
-	defer bc.hbTicker.Stop()
 
 	var r *Request
 	var ok bool
@@ -241,7 +241,7 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 		err := c.FlushBuffer(flush)
 
 		if err == nil {
-			log.Printf("Succeed Write Request to backend Server/LB\n")
+			//			log.Printf("Succeed Write Request to backend Server/LB\n")
 			bc.IncreaseCurrentSeqId()
 			bc.Lock()
 			bc.seqNum2Request[r.Response.SeqId] = r

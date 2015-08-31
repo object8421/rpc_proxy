@@ -70,7 +70,6 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 //
 func (bc *BackendConnLB) Heartbeat() {
 	go func() {
-		bc.hbTicker = time.NewTicker(time.Second)
 		bc.hbLastTime = time.Now().Unix()
 		for true {
 			select {
@@ -164,10 +163,11 @@ func (bc *BackendConnLB) loopWriter() error {
 	// bc.MarkConnActiveOK() // 准备接受数据
 	// BackendConnLB 在构造之初就有打开的transport, 并且Active默认为OK
 
+	bc.hbTicker = time.NewTicker(time.Second)
+	defer bc.hbTicker.Stop()
+
 	bc.loopReader(c) // 异步
 	bc.Heartbeat()   // 建立连接之后，就启动HB
-
-	defer bc.hbTicker.Stop()
 
 	var r *Request
 	var ok bool
@@ -319,7 +319,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 			return errors.New("Invalid Response")
 		}
 
-		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
+		//		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
 		r = req
 		r.Response.TypeId = typeId
 	}

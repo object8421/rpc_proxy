@@ -54,14 +54,14 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(r, "BackServiceLB")
-		log.Printf(Magenta("---->Convert Error Back to Exception:[%d] %s\n"), len(errMsg), string(errMsg))
+		//		log.Printf(Magenta("---->Convert Error Back to Exception:[%d] %s\n"), len(errMsg), string(errMsg))
 		r.Response.Data = errMsg
 
 		return nil
 	} else {
-		if s.verbose {
-			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.serviceName)
-		}
+		//		if s.verbose {
+		//			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.serviceName)
+		//		}
 		backendConn.PushBack(r)
 
 		r.Wait.Wait()
