@@ -9,8 +9,8 @@ module=rpc_proxy
 app=/usr/local/bin/rpc_proxy
 conf=config.ini
 proxy_log=log/proxy.log
-pidfile=log/app.pid
-logfile=log/app.log
+pidfile=log/app_proxy.pid
+logfile=log/app_proxy.log
 
 function check_pid() {
     if [ -f $pidfile ];then

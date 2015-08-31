@@ -9,8 +9,8 @@ module=rpc_proxy
 app=/usr/local/bin/rpc_lb
 conf=config.ini
 proxy_log=log/lb.log
-pidfile=log/app.pid
-logfile=log/app.log
+pidfile=log/app_lb.pid
+logfile=log/app_lb.log
 
 function check_pid() {
     if [ -f $pidfile ];then
@@ -43,7 +43,7 @@ function start() {
 
 function stop() {
 	check_pid
-    running=$?
+	running=$?
 	if [ $running -gt 0 ];then
 	    pid=`cat $pidfile`
 		kill -15 $pid
@@ -79,7 +79,7 @@ function status() {
 function tailf() {
 	fs=(`ls -t ${proxy_log}.*`)
 	recent_file=${fs[0]}
-    tail -Fn 100 $recent_file
+	tail -Fn 100 $recent_file
 }
 
 
