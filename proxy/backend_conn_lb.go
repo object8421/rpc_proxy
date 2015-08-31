@@ -30,8 +30,9 @@ type BackendConnLB struct {
 	verbose        bool
 	IsConnActive   bool // 是否处于Active状态呢
 
-	ticker     *time.Ticker
-	lastHbTime int64
+	hbLastTime int64
+	hbTicker   *time.Ticker
+	hbTimeout  chan bool
 }
 
 //
@@ -61,7 +62,6 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		verbose:        verbose,
 	}
 	go bc.Run()
-	go bc.Heartbeat()
 	return bc
 }
 
@@ -69,23 +69,24 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 // 发现心跳出现问题，就断开连接，结束ConnLB的生命周期
 //
 func (bc *BackendConnLB) Heartbeat() {
-	bc.ticker = time.NewTicker(time.Second)
-	bc.lastHbTime = time.Now().Unix()
-	for true {
-		select {
-		case <-bc.ticker.C:
-			if time.Now().Unix()-bc.lastHbTime > 4 {
-				bc.MarkConnActiveFalse()
-			}
-			if bc.IsConnActive {
-				// 定时添加Ping的任务
-				r := NewPingRequest(0)
-				bc.PushBack(r)
-			} else {
-				bc.ticker.Stop()
+	go func() {
+		bc.hbTicker = time.NewTicker(time.Second)
+		bc.hbLastTime = time.Now().Unix()
+		for true {
+			select {
+			case <-bc.hbTicker.C:
+				if time.Now().Unix()-bc.hbLastTime > 6 {
+					bc.hbTimeout <- true
+				} else {
+					if bc.IsConnActive {
+						// 定时添加Ping的任务
+						r := NewPingRequest(0)
+						bc.PushBack(r)
+					}
+				}
 			}
 		}
-	}
+	}()
 }
 
 func (bc *BackendConnLB) MarkConnActiveFalse() {
@@ -111,15 +112,14 @@ func (bc *BackendConnLB) Run() {
 
 	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.addr4Log)
 
-	if err != nil {
+	if err == nil {
+		// bc.input被关闭了，应该就没有 Request 了
+	} else {
 		// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
 		for i := len(bc.input); i != 0; i-- {
 			r := <-bc.input
 			bc.setResponse(r, nil, err)
 		}
-	} else {
-		// TODO:
-		// 如果err == nil, 那么是否存在没有处理完毕的Response呢?
 	}
 
 }
@@ -161,70 +161,68 @@ func (bc *BackendConnLB) loopWriter() error {
 	// 如果input没有关闭，则会block
 	c := NewTBufferedFramedTransport(bc.transport, 100*time.Microsecond, 20)
 
-	r, ok := <-bc.input
+	// bc.MarkConnActiveOK() // 准备接受数据
+	// BackendConnLB 在构造之初就有打开的transport, 并且Active默认为OK
 
-	if ok {
-		// 启动Reader Loop
-		bc.loopReader(c)
+	bc.loopReader(c) // 异步
+	bc.Heartbeat()   // 建立连接之后，就启动HB
 
-		for ok {
-			// 如果暂时没有数据输入，则p策略可能就有问题了
-			// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
-			//
-			if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
-				// 过期的HB信号，直接放弃
-				if time.Now().Unix()-r.Start > 4 {
-					r, ok = <-bc.input
-					continue
-				} else {
-					//					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr4Log())
-				}
+	defer bc.hbTicker.Stop()
+
+	var r *Request
+	var ok bool
+
+	for true {
+		// 等待输入的Event, 或者 heartbeatTimeout
+		select {
+		case r, ok = <-bc.input:
+			if !ok {
+				return nil
 			}
-			var flush = len(bc.input) == 0
-			fmt.Printf("Force flush %t\n", flush)
-
-			// 1. 替换新的SeqId
-			r.ReplaceSeqId(bc.currentSeqId)
-
-			// 2. 主动控制Buffer的flush
-
-			//			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
-			c.Write(r.Request.Data)
-			err := c.FlushBuffer(flush)
-
-			if err == nil {
-				//				if bc.verbose {
-				//					log.Printf(Cyan("Flush Task to Python RPC Woker: SeqId: %d\n"), r.Response.SeqId)
-				//				}
-				bc.IncreaseCurrentSeqId()
-				bc.Lock()
-				bc.seqNum2Request[r.Response.SeqId] = r
-				bc.Unlock()
-
-				// 继续读取请求, 如果有异常，如何处理呢?
-				r, ok = <-bc.input
-
-				continue
-
-			} else {
-				log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
-
-				// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-				bc.MarkConnActiveFalse()
-				return bc.setResponse(r, nil, err)
-			}
+		case <-bc.hbTimeout:
+			return errors.New("HB timeout")
 		}
 
+		// 如果暂时没有数据输入，则p策略可能就有问题了
+		// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
+		//
+		if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+			// 过期的HB信号，直接放弃
+			if time.Now().Unix()-r.Start > 4 {
+				r, ok = <-bc.input
+				continue
+			} else {
+				//					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr4Log())
+			}
+		}
+		var flush = len(bc.input) == 0
+		fmt.Printf("Force flush %t\n", flush)
+
+		// 1. 替换新的SeqId
+		r.ReplaceSeqId(bc.currentSeqId)
+
+		// 2. 主动控制Buffer的flush
+
+		//			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
+		c.Write(r.Request.Data)
+		err := c.FlushBuffer(flush)
+
+		if err == nil {
+
+			bc.IncreaseCurrentSeqId()
+			bc.Lock()
+			bc.seqNum2Request[r.Response.SeqId] = r
+			bc.Unlock()
+
+			// 继续读取请求, 如果有异常，如何处理呢?
+		} else {
+			log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
+
+			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+			return bc.setResponse(r, nil, err)
+		}
 	}
 	return nil
-}
-
-func (bc *BackendConnLB) IncreaseCurrentSeqId() {
-	// 备案(只有loopWriter操作，不加锁)
-	bc.currentSeqId++
-	if bc.currentSeqId > 100000 {
-		bc.currentSeqId = 1
-	}
 }
 
 //
@@ -305,7 +303,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
-			bc.lastHbTime = time.Now().Unix()
+			bc.hbLastTime = time.Now().Unix()
 			return nil
 		}
 
@@ -341,4 +339,12 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 	}
 
 	return err
+}
+
+func (bc *BackendConnLB) IncreaseCurrentSeqId() {
+	// 备案(只有loopWriter操作，不加锁)
+	bc.currentSeqId++
+	if bc.currentSeqId > 100000 {
+		bc.currentSeqId = 1
+	}
 }

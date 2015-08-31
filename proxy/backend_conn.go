@@ -26,13 +26,16 @@ type BackendConn struct {
 	seqNum2Request map[int32]*Request
 	currentSeqId   int32 // 范围: 1 ~ 100000
 
-	Index         int
-	delegate      *BackService
-	ticker        *time.Ticker
-	lastHbTime    int64
+	Index    int
+	delegate *BackService
+
 	IsMarkOffline bool // 是否标记下线
 	IsConnActive  bool // 是否处于Active状态呢
 	verbose       bool
+
+	hbLastTime int64
+	hbTicker   *time.Ticker
+	hbTimeout  chan bool
 }
 
 func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendConn {
@@ -40,6 +43,7 @@ func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendCo
 		addr:           addr,
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
+		hbTimeout:      make(chan bool),
 		currentSeqId:   1,
 		Index:          -1,
 		delegate:       delegate,
@@ -48,39 +52,46 @@ func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendCo
 		verbose:        verbose,
 	}
 	go bc.Run()
-	go bc.Heartbeat()
 	return bc
 }
 
 func (bc *BackendConn) Heartbeat() {
-	bc.ticker = time.NewTicker(time.Second)
-	bc.lastHbTime = time.Now().Unix()
-	for true {
-		select {
-		case <-bc.ticker.C:
-			if time.Now().Unix()-bc.lastHbTime > 6 {
-				bc.MarkConnActiveFalse()
+	go func() {
+		bc.hbTicker = time.NewTicker(time.Second)
+		bc.hbLastTime = time.Now().Unix()
+		for true {
+			select {
+			case <-bc.hbTicker.C:
+				if time.Now().Unix()-bc.hbLastTime > 6 {
+					bc.hbTimeout <- true
+				} else {
+					if bc.IsConnActive {
+						// 定时添加Ping的任务
+						r := NewPingRequest(0)
+						bc.PushBack(r)
+					}
+				}
 			}
-			// 定时添加Ping的任务
-			r := NewPingRequest(0)
-			bc.PushBack(r)
 		}
-	}
+	}()
 }
 
 func (bc *BackendConn) MarkOffline() {
-	log.Printf(Red("BackendConn: %s MarkOffline\n"), bc.addr)
-
-	bc.IsMarkOffline = true
+	if !bc.IsMarkOffline {
+		log.Printf(Red("BackendConn: %s MarkOffline\n"), bc.addr)
+		bc.IsMarkOffline = true
+	}
 }
 
 func (bc *BackendConn) MarkConnActiveFalse() {
-	log.Printf(Red("MarkConnActiveFalse: %s, %p\n"), bc.addr, bc.delegate)
-	// 从Active切换到非正常状态
-	bc.IsConnActive = false
+	if bc.IsConnActive {
+		log.Printf(Red("MarkConnActiveFalse: %s, %p\n"), bc.addr, bc.delegate)
+		// 从Active切换到非正常状态
+		bc.IsConnActive = false
 
-	if bc.delegate != nil {
-		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+		if bc.delegate != nil {
+			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+		}
 	}
 }
 
@@ -88,45 +99,15 @@ func (bc *BackendConn) MarkConnActiveFalse() {
 // 从Active切换到非正常状态
 //
 func (bc *BackendConn) MarkConnActiveOK() {
-	log.Printf(Green("MarkConnActiveOK: %s, %p\n"), bc.addr, bc.delegate)
+	if !bc.IsConnActive {
+		log.Printf(Green("MarkConnActiveOK: %s, %p\n"), bc.addr, bc.delegate)
+	}
 
 	bc.IsConnActive = true
 	if bc.delegate != nil {
 		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
 	}
 
-}
-
-//
-// 不断建立到后端的逻辑，负责: BackendConn#input到redis的数据的输入和返回
-//
-func (bc *BackendConn) Run() {
-	log.Infof("backend conn [%p] to %s, start service", bc, bc.addr)
-
-	for k := 0; !bc.IsMarkOffline; k++ {
-
-		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
-		err := bc.loopWriter()
-		// 标记状态异常
-		bc.MarkConnActiveFalse()
-
-		if err == nil {
-			log.Println(Red("BackendConn#loopWriter normal Exit..."))
-			break
-		} else {
-
-			// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
-			for i := len(bc.input); i != 0; i-- {
-				r := <-bc.input
-				bc.setResponse(r, nil, err)
-			}
-		}
-
-		// 然后等待，继续尝试新的连接
-		log.WarnErrorf(err, "backend conn [%p] to %s, restart [%d]", bc, bc.addr, k)
-		time.Sleep(time.Millisecond * 50)
-	}
-	log.Infof("backend conn [%p] to %s, stop and exit", bc, bc.addr)
 }
 
 func (bc *BackendConn) Addr() string {
@@ -146,86 +127,12 @@ func (bc *BackendConn) PushBack(r *Request) {
 	bc.input <- r
 }
 
-var ErrFailedRequest = errors.New("discard failed request")
-
-func (bc *BackendConn) loopWriter() error {
-	// bc.input 实现了前段请求的buffer
-	r, ok := <-bc.input
-
-	if ok {
-		c, err := bc.newBackendReader()
-
-		// 如果出错，则表示连接Redis或授权出问题了
-		if err != nil {
-			return bc.setResponse(r, nil, err)
-		}
-
-		// 现在进入可用状态
-		bc.MarkConnActiveOK()
-
-		for ok {
-			// 如果暂时没有数据输入，则p策略可能就有问题了
-			// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
-			//
-			if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
-				// 过期的HB信号，直接放弃
-				if time.Now().Unix()-r.Start > 4 {
-					r, ok = <-bc.input
-					continue
-				} else {
-					//					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr())
-				}
-			}
-			// 如果有5s没有收到HB信号，则报错
-			if time.Now().Unix()-bc.lastHbTime > 5 {
-				return bc.setResponse(r, nil, errors.New("HB timeout"))
-			}
-
-			var flush = len(bc.input) == 0
-			fmt.Printf("Force flush %t\n", flush)
-
-			// 1. 替换新的SeqId
-			r.ReplaceSeqId(bc.currentSeqId)
-
-			// 2. 主动控制Buffer的flush
-			c.Write(r.Request.Data)
-			err := c.FlushBuffer(flush)
-
-			if err == nil {
-				log.Printf("Succeed Write Request to backend Server/LB\n")
-				bc.IncreaseCurrentSeqId()
-				bc.Lock()
-				bc.seqNum2Request[r.Response.SeqId] = r
-				bc.Unlock()
-
-				// 读取
-				r, ok = <-bc.input
-				continue
-			}
-
-			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-			bc.MarkConnActiveFalse()
-
-			return bc.setResponse(r, nil, err)
-		}
-	}
-	return nil
-}
-
-func (bc *BackendConn) IncreaseCurrentSeqId() {
-	// 备案(只有loopWriter操作，不加锁)
-	bc.currentSeqId++
-	if bc.currentSeqId > 100000 {
-		bc.currentSeqId = 1
-	}
-}
-
-// 创建一个到"后端服务"的连接
-func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
-
-	// 创建连接(只要IP没有问题， err一般就是空)
-	socket, err := thrift.NewTSocketTimeout(bc.addr, time.Hour*3)
-
+//
+// 确保Socket成功连接到后端服务器
+//
+func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
+	// 1. 创建连接(只要IP没有问题， err一般就是空)
+	socket, err = thrift.NewTSocketTimeout(bc.addr, time.Hour*3)
 	log.Printf(Cyan("Create Socket To: %s\n"), bc.addr)
 
 	if err != nil {
@@ -234,18 +141,132 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 		return nil, err
 	}
 
-	// 只要服务存在，一般不会出现err
+	// 2. 只要服务存在，一般不会出现err
+	sleepInterval := 1
 	err = socket.Open()
-	if err != nil {
+	for err != nil {
 		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s\n", err, bc.addr)
-		// 连接不上，失败
-		return nil, err
-	} else {
-		log.Printf("Socket Open Succedd\n")
+		time.Sleep(time.Duration(sleepInterval) * time.Second)
+
+		if sleepInterval < 8 {
+			sleepInterval *= 2
+		}
+		err = socket.Open()
+	}
+	return socket, err
+}
+
+//
+// 不断建立到后端的逻辑，负责: BackendConn#input到redis的数据的输入和返回
+//
+func (bc *BackendConn) Run() {
+
+	for k := 0; !bc.IsMarkOffline; k++ {
+
+		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
+		socket, err := bc.ensureConn()
+		if err != nil {
+			log.ErrorErrorf(err, "BackendConn#ensureConn error: %v\n", err)
+			return
+		}
+
+		c := NewTBufferedFramedTransport(socket, 100*time.Microsecond, 20)
+
+		// 2. 将 bc.input 中的请求写入 后端的Rpc Server
+		err = bc.loopWriter(c) // 同步
+
+		// 3. 停止接受Request
+		bc.MarkConnActiveFalse()
+
+		// 4. 将bc.input中剩余的 Request直接出错处理
+		if err == nil {
+			log.Println(Red("BackendConn#loopWriter normal Exit..."))
+			break
+		} else {
+			// 对于尚未处理的Request, 直接报错
+			for i := len(bc.input); i != 0; i-- {
+				r := <-bc.input
+				bc.setResponse(r, nil, err)
+			}
+		}
+	}
+}
+
+//
+// 将 bc.input 中的Request写入后端的服务器
+//
+func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
+
+	bc.MarkConnActiveOK() // 准备接受数据
+	bc.loopReader(c)      // 异步
+	bc.Heartbeat()        // 建立连接之后，就启动HB
+
+	defer bc.hbTicker.Stop()
+
+	var r *Request
+	var ok bool
+
+	for true {
+		// 等待输入的Event, 或者 heartbeatTimeout
+		select {
+		case r, ok = <-bc.input:
+			if !ok {
+				return nil
+			}
+		case <-bc.hbTimeout:
+			return errors.New("HB timeout")
+		}
+
+		//
+		// 如果暂时没有数据输入，则p策略可能就有问题了
+		// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
+		//
+		if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+			// 过期的HB信号，直接放弃
+			if time.Now().Unix()-r.Start > 4 {
+				r, ok = <-bc.input
+				continue
+			}
+		}
+
+		// 请求正常转发给后端的Rpc Server
+		var flush = len(bc.input) == 0
+		fmt.Printf("Force flush %t\n", flush)
+
+		// 1. 替换新的SeqId
+		r.ReplaceSeqId(bc.currentSeqId)
+
+		// 2. 主动控制Buffer的flush
+		c.Write(r.Request.Data)
+		err := c.FlushBuffer(flush)
+
+		if err == nil {
+			log.Printf("Succeed Write Request to backend Server/LB\n")
+			bc.IncreaseCurrentSeqId()
+			bc.Lock()
+			bc.seqNum2Request[r.Response.SeqId] = r
+			bc.Unlock()
+
+			// 读取
+			r, ok = <-bc.input
+		} else {
+			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+			return bc.setResponse(r, nil, err)
+		}
 	}
 
-	c := NewTBufferedFramedTransport(socket, 100*time.Microsecond, 20)
+	return nil
+}
 
+//
+// Client <---> Proxy[BackendConn] <---> RPC Server[包含LB]
+// BackConn <====> RPC Server
+// loopReader从RPC Server读取数据，然后根据返回的结果来设置: Client的Request的状态
+//
+// 1. bc.flushRequest
+// 2. bc.setResponse
+//
+func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
 	go func() {
 		defer c.Close()
 
@@ -270,7 +291,6 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 			}
 		}
 	}()
-	return c, nil
 }
 
 // 处理所有的等待中的请求
@@ -312,7 +332,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
 			//			log.Printf(Magenta("Get Ping/Pang Back\n"))
-			bc.lastHbTime = time.Now().Unix()
+			bc.hbLastTime = time.Now().Unix()
 			return nil
 		}
 
@@ -349,6 +369,14 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	}
 
 	return err
+}
+
+func (bc *BackendConn) IncreaseCurrentSeqId() {
+	// 备案(只有loopWriter操作，不加锁)
+	bc.currentSeqId++
+	if bc.currentSeqId > 100000 {
+		bc.currentSeqId = 1
+	}
 }
 
 func FormatYYYYmmDDHHMMSS(date time.Time) string {
