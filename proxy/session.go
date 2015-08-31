@@ -182,7 +182,7 @@ func (s *Session) handleResponse(r *Request) {
 	// 将Err转换成为Exception
 	if r.Response.Err != nil {
 
-		r.Response.Data = GetThriftException(r)
+		r.Response.Data = GetThriftException(r, "proxy_session")
 		log.Printf(Magenta("---->Convert Error Back to Exception: %s\n"), string(r.Response.Data))
 	}
 

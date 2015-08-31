@@ -148,7 +148,7 @@ func (s *NonBlockSession) handleResponse(r *Request) {
 	// 将Err转换成为Exception
 	if r.Response.Err != nil {
 		log.Println("#handleResponse, Error ----> Reponse Data")
-		r.Response.Data = GetThriftException(r)
+		r.Response.Data = GetThriftException(r, "nonblock_session")
 	}
 
 	incrOpStats(r.OpStr, microseconds()-r.Start)
@@ -159,6 +159,11 @@ func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request,
 	// 构建Request
 	//	log.Printf("HandleRequest: %s\n", string(request))
 	r := NewRequest(request)
+
+	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+		HandlePingRequest(r)
+		return r, nil
+	}
 
 	// 增加统计
 	s.LastOpUnix = time.Now().Unix()

@@ -64,18 +64,17 @@ func GetServiceIdentity(frontendAddr string) string {
 //
 // 去ZK注册当前的Service
 //
-func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topology, evtExit chan interface{}) {
+func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topology, evtExit chan interface{}) *ServiceEndpoint {
 	// 1. 准备数据
 	// 记录Service Endpoint的信息
-	var endpointInfo map[string]interface{} = make(map[string]interface{})
-	endpointInfo[SERVER_ENDPOINT] = frontendAddr
 	servicePath := topo.ProductServicePath(serviceName)
 
 	// 用来从zookeeper获取实践
 	evtbus := make(chan interface{})
 
 	// 2. 将信息添加到Zk中, 并且监控Zk的状态(如果添加失败会怎么样?)
-	topo.AddServiceEndPoint(serviceName, serviceId, endpointInfo)
+	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr)
+	endpoint.AddServiceEndpoint(topo)
 
 	go func() {
 
@@ -92,8 +91,9 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 					event := e.(topozk.Event)
 					if event.State == topozk.StateExpired || event.Type == topozk.EventNotWatching {
 						// Session过期了，则需要删除之前的数据，因为这个数据的Owner不是当前的Session
-						topo.DeleteServiceEndPoint(serviceName, serviceId)
-						topo.AddServiceEndPoint(serviceName, serviceId, endpointInfo)
+						endpoint.DeleteServiceEndpoint(topo)
+						endpoint.AddServiceEndpoint(topo)
+
 					}
 				}
 
@@ -110,6 +110,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 
 		}
 	}()
+	return endpoint
 }
 
 // 后端如何处理一个Request?
@@ -142,7 +143,7 @@ func (p *ThriftRpcServer) Run() {
 
 	// 注册服务
 	evtExit := make(chan interface{})
-	RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, p.Topo, evtExit)
+	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, p.Topo, evtExit)
 
 	//	var suideTime time.Time
 
@@ -166,7 +167,7 @@ func (p *ThriftRpcServer) Run() {
 	go func() {
 		<-ch1
 		log.Info(Green("Receive Exit Signals...."))
-		p.Topo.DeleteServiceEndPoint(p.ServiceName, lbServiceName)
+		endpoint.DeleteServiceEndpoint(p.Topo)
 		transport.Interrupt()
 		transport.Close()
 	}()

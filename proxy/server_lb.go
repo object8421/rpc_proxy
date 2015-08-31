@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
@@ -64,7 +65,7 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	// 注册服务
 	evtExit := make(chan interface{})
-	RegisterService(p.serviceName, p.frontendAddr, p.lbServiceName, p.topo, evtExit)
+	serviceEndpoint := RegisterService(p.serviceName, p.frontendAddr, p.lbServiceName, p.topo, evtExit)
 
 	//	var suideTime time.Time
 
@@ -74,9 +75,14 @@ func (p *ThriftLoadBalanceServer) Run() {
 	transport, err := thrift.NewTServerSocket(p.frontendAddr)
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		panic(fmt.Sprintf("Invalid FrontendAddress: %s", p.frontendAddr))
 	}
 
-	transport.Open()
+	err = transport.Open()
+	if err != nil {
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		panic(fmt.Sprintf("Binding Error FrontendAddress: %s", p.frontendAddr))
+	}
 
 	// 开始监听
 	transport.Listen()
@@ -88,7 +94,7 @@ func (p *ThriftLoadBalanceServer) Run() {
 	go func() {
 		<-ch1
 		log.Info(Green("Receive Exit Signals...."))
-		p.topo.DeleteServiceEndPoint(p.serviceName, p.lbServiceName)
+		serviceEndpoint.DeleteServiceEndpoint(p.topo)
 		transport.Interrupt()
 		transport.Close()
 	}()

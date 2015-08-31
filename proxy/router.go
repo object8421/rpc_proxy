@@ -18,14 +18,14 @@ type Router struct {
 	closed bool
 
 	sync.RWMutex
-	Services map[string]*BackService
+	services map[string]*BackService
 	topo     *zk.Topology
 	Verbose  bool
 }
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	r := &Router{
-		Services: make(map[string]*BackService),
+		services: make(map[string]*BackService),
 		topo:     topo,
 		Verbose:  verbose,
 	}
@@ -49,10 +49,13 @@ func (s *Router) Dispatch(r *Request) error {
 	}
 }
 
+//
+// 打印当前的Service的情况
+//
 func (bk *Router) ReportServices() {
 	bk.RLock()
 	log.Info(Green("Report Service Workers: "))
-	for serviceName, service := range bk.Services {
+	for serviceName, service := range bk.services {
 		log.Infof("Service: %s, Worker Count: %d\n", serviceName, service.Active())
 	}
 	bk.RUnlock()
@@ -76,14 +79,14 @@ func (bk *Router) WatchServices() {
 			if err == nil {
 				bk.Lock()
 				// 保证数据更新是有效的
-				oldServices := bk.Services
-				bk.Services = make(map[string]*BackService, len(services))
+				oldServices := bk.services
+				bk.services = make(map[string]*BackService, len(services))
 				for _, service := range services {
 					log.Println("Found Service: ", service)
 
 					back, ok := oldServices[service]
 					if ok {
-						bk.Services[service] = back
+						bk.services[service] = back
 						delete(oldServices, service)
 					} else {
 
@@ -117,16 +120,16 @@ func (bk *Router) WatchServices() {
 // 添加一个后台服务(非线程安全)
 func (bk *Router) addBackService(service string) {
 
-	backService, ok := bk.Services[service]
+	backService, ok := bk.services[service]
 	if !ok {
 		backService = NewBackService(service, bk.topo, bk.Verbose)
-		bk.Services[service] = backService
+		bk.services[service] = backService
 	}
 
 }
 func (bk *Router) GetBackService(service string) *BackService {
 	bk.RLock()
-	backService, ok := bk.Services[service]
+	backService, ok := bk.services[service]
 	bk.RUnlock()
 
 	if ok {

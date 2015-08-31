@@ -12,10 +12,16 @@ type Dispatcher interface {
 	Dispatch(r *Request) error
 }
 
+const (
+	MESSAGE_TYPE_HEART_BEAT thrift.TMessageType = -1
+	MESSAGE_TYPE_STOP       thrift.TMessageType = -2
+)
+
 type Request struct {
 	Service string // 服务
 
-	Request struct { // 原始的数据(虽然拷贝有点点效率低，但是和zeromq相比也差不多)
+	// 原始的数据(虽然拷贝有点点效率低，但是和zeromq相比也差不多)
+	Request struct {
 		Name   string
 		TypeId thrift.TMessageType
 		SeqId  int32
@@ -24,10 +30,6 @@ type Request struct {
 
 	OpStr string
 	Start int64
-
-	// 原始请求的内容
-
-	Coalesce func() error
 
 	// 返回的数据类型
 	Response struct {
@@ -38,11 +40,13 @@ type Request struct {
 	}
 
 	Wait *sync.WaitGroup
-	//	slot *sync.WaitGroup
 
 	Failed *atomic2.Bool
 }
 
+//
+// 给定一个thrift message，构建一个Request对象
+//
 func NewRequest(data []byte) *Request {
 	request := &Request{
 		Wait: &sync.WaitGroup{},

@@ -5,6 +5,7 @@ import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 )
 
+
 //
 // 生成Thrift格式的Exception Message
 //
@@ -47,14 +48,14 @@ func GetWorkerNotFoundData(req *Request) []byte {
 	return bytes
 }
 
-func GetThriftException(req *Request) []byte {
+func GetThriftException(req *Request, module string) []byte {
 	req.Response.TypeId = thrift.EXCEPTION
 
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
-	msg := fmt.Sprintf("Service: %s, Method: %s, Error: %v", req.Service, req.Request.Name, req.Response.Err)
+	msg := fmt.Sprintf("Module: %s, Service: %s, Method: %s, Error: %v", module, req.Service, req.Request.Name, req.Response.Err)
 
 	// 构建一个Message, 写入Exception
 	exc := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, msg)

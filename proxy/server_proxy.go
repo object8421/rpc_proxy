@@ -18,34 +18,30 @@ type ProxyServer struct {
 	productName string
 	proxyAddr   string
 	zkAdresses  string
+	topo        *zk.Topology
 	verbose     bool
 	profile     bool
 	router      *Router
 }
 
 func NewProxyServer(config *utils.Config) *ProxyServer {
-	server := &ProxyServer{
+	p := &ProxyServer{
 		productName: config.ProductName,
 		proxyAddr:   config.ProxyAddr,
 		zkAdresses:  config.ZkAddr,
 		verbose:     config.Verbose,
 		profile:     config.Profile,
 	}
-	return server
+	p.topo = zk.NewTopology(p.productName, p.zkAdresses)
+	p.router = NewRouter(p.productName, p.topo, p.verbose)
+	return p
 }
 
 //
 // 两参数是必须的:  ProductName, zkAddress, frontAddr可以用来测试
 //
 func (p *ProxyServer) Run() {
-	// 1. 创建到zk的连接
-	var topo *zk.Topology
-	topo = zk.NewTopology(p.productName, p.zkAdresses)
-
-	p.router = NewRouter(p.productName, topo, p.verbose)
-
-	// 3. 读取后端服务的配置
-
+	// 读取后端服务的配置
 	transport, err := thrift.NewTServerSocket(p.proxyAddr)
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s\n", err, p.proxyAddr)
@@ -85,9 +81,6 @@ func (p *ProxyServer) Run() {
 			ch <- c
 		}
 	}
-
-	fmt.Println("")
-	select {}
 }
 
 func printList(msgs []string) string {

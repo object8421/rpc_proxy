@@ -52,23 +52,22 @@ func (s *BackService) WatchBackServiceNodes() {
 
 	go func() {
 		for true {
-			endpoints, err := s.topo.WatchChildren(servicePath, evtbus)
+			serviceIds, err := s.topo.WatchChildren(servicePath, evtbus)
 
 			if err == nil {
 				// 如何监听endpoints的变化呢?
 				addressList := make([]string, 0, 10)
 				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
-				for _, endpoint := range endpoints {
-					// 这些endpoint变化该如何处理呢?
-					log.Println(Green("---->Find Endpoint: "),
-						endpoint, "For Service: ", s.serviceName)
-					endpointInfo, _ := s.topo.GetServiceEndPoint(s.serviceName, endpoint)
+				for _, serviceId := range serviceIds {
 
-					addr, ok := endpointInfo[SERVER_ENDPOINT]
-					if ok {
-						addrStr := addr.(string)
-						log.Println(Green("---->Add endpoint to backend: "),
-							addrStr, nowStr, "For Service: ", s.serviceName)
+					log.Println(Green("---->Find Endpoint: "), serviceId, "For Service: ", s.serviceName)
+					endpointInfo, err := GetServiceEndpoint(s.topo, s.serviceName, serviceId)
+					if err != nil {
+						log.ErrorErrorf(err, "Service Endpoint Read Error: %v\n", err)
+					} else {
+
+						addrStr := endpointInfo.Frontend
+						log.Println(Green("---->Add endpoint to backend: "), addrStr, nowStr, "For Service: ", s.serviceName)
 						addressList = append(addressList, addrStr)
 					}
 				}
