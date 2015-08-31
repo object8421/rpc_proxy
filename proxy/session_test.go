@@ -61,7 +61,7 @@ func TestSession(t *testing.T) {
 		l := fakeData("Hello", thrift.CALL, i+1, buf[0:0])
 		buf = buf[0:l]
 
-		req := NewRequest(buf)
+		req := NewRequest(buf, true)
 
 		req.Wait.Add(1) // 因为go routine可能还没有执行，代码就跑到最后面进行校验了
 
@@ -72,7 +72,7 @@ func TestSession(t *testing.T) {
 	go func() {
 		// 模拟请求:
 		// 客户端代码
-		bc := NewBackendConn(addr, nil)
+		bc := NewBackendConn(addr, nil, true)
 		bc.currentSeqId = 10
 		defer bc.Close()
 
@@ -99,7 +99,7 @@ func TestSession(t *testing.T) {
 		}
 		assert.NoError(t, err)
 
-		session := NewSession(tran, "")
+		session := NewSession(tran, "", true)
 
 		session.Serve(server, 6)
 

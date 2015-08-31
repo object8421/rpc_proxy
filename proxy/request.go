@@ -18,7 +18,8 @@ const (
 )
 
 type Request struct {
-	Service string // 服务
+	Service          string // 服务
+	ServiceInRequest bool   // Service是否出现在Request.Data中，默认为true, 但是信条等信号中没有service
 
 	// 原始的数据(虽然拷贝有点点效率低，但是和zeromq相比也差不多)
 	Request struct {
@@ -47,9 +48,10 @@ type Request struct {
 //
 // 给定一个thrift message，构建一个Request对象
 //
-func NewRequest(data []byte) *Request {
+func NewRequest(data []byte, serviceInReq bool) *Request {
 	request := &Request{
-		Wait: &sync.WaitGroup{},
+		Wait:             &sync.WaitGroup{},
+		ServiceInRequest: serviceInReq,
 	}
 	request.Request.Data = data
 	request.DecodeRequest()
@@ -86,7 +88,11 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 		//		log.Printf(Green("Replace SeqNum: %d --> %d\n"), r.Request.SeqId, newSeq)
 		r.Response.SeqId = newSeq
 
-		start := len(r.Service)
+		start := 0
+
+		if r.ServiceInRequest {
+			start = len(r.Service)
+		}
 		if start > 0 {
 			start += 1 // ":"
 			//			log.Printf("Service: %s, Name: %s\n", r.Service, r.Request.Name)

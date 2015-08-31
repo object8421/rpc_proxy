@@ -19,7 +19,6 @@ type BackendConnLB struct {
 	transport   thrift.TTransport
 	addr4Log    string
 	serviceName string
-	stop        sync.Once
 	input       chan *Request // 输入的请求, 有: 1024个Buffer
 
 	// seqNum2Request 读写基本上差不多
@@ -66,6 +65,9 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 	return bc
 }
 
+//
+// 发现心跳出现问题，就断开连接，结束ConnLB的生命周期
+//
 func (bc *BackendConnLB) Heartbeat() {
 	bc.ticker = time.NewTicker(time.Second)
 	bc.lastHbTime = time.Now().Unix()
@@ -75,10 +77,13 @@ func (bc *BackendConnLB) Heartbeat() {
 			if time.Now().Unix()-bc.lastHbTime > 4 {
 				bc.MarkConnActiveFalse()
 			}
-
-			// 定时添加Ping的任务
-			r := NewPingRequest(0)
-			bc.PushBack(r)
+			if bc.IsConnActive {
+				// 定时添加Ping的任务
+				r := NewPingRequest(0)
+				bc.PushBack(r)
+			} else {
+				bc.ticker.Stop()
+			}
 		}
 	}
 }
@@ -124,9 +129,7 @@ func (bc *BackendConnLB) Addr4Log() string {
 }
 
 func (bc *BackendConnLB) Close() {
-	//	bc.stop.Do(func() {
-	//		close(bc.input)
-	//	})
+
 }
 
 //
@@ -184,27 +187,32 @@ func (bc *BackendConnLB) loopWriter() error {
 			r.ReplaceSeqId(bc.currentSeqId)
 
 			// 2. 主动控制Buffer的flush
+
+			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
 			c.Write(r.Request.Data)
 			err := c.FlushBuffer(flush)
 
 			if err == nil {
 				if bc.verbose {
-					log.Printf(Cyan("Flush Task to Python RPC Woker\n"))
+					log.Printf(Cyan("Flush Task to Python RPC Woker: SeqId: %d\n"), r.Response.SeqId)
 				}
 				bc.IncreaseCurrentSeqId()
 				bc.Lock()
 				bc.seqNum2Request[r.Response.SeqId] = r
 				bc.Unlock()
+
 				// 继续读取请求, 如果有异常，如何处理呢?
 				r, ok = <-bc.input
+
 				continue
 
-			}
-			log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
+			} else {
+				log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
 
-			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-			bc.MarkConnActiveFalse()
-			return bc.setResponse(r, nil, err)
+				// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+				bc.MarkConnActiveFalse()
+				return bc.setResponse(r, nil, err)
+			}
 		}
 
 	}

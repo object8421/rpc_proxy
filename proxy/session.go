@@ -153,7 +153,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 		if s.verbose {
 			log.Printf("Session#loopWriter --> client[%d]: %s\n", len(r.Response.Data), Cyan(string(r.Response.Data)))
 
-			r1 := NewRequest(r.Response.Data)
+			r1 := NewRequest(r.Response.Data, true)
 			log.Printf("====> Service: %s, Name: %s, Seq: %d, Type: %d\n", r1.Service, r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
 		}
 
@@ -199,7 +199,7 @@ func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) 
 	if s.verbose {
 		log.Printf("HandleRequest: %s\n", string(request))
 	}
-	r := NewRequest(request)
+	r := NewRequest(request, true)
 
 	// 增加统计
 	s.LastOpUnix = time.Now().Unix()

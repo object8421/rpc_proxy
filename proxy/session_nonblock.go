@@ -123,8 +123,8 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 		//    出错了如何处理呢?
 		s.handleResponse(r)
 		// 2. 将结果写回给Client
-		log.Printf("-----> Session Write back to client: %s\n", string(r.Response.Data))
-		log.Printf("-----> Write Back Frame Length: %d\n", len(r.Response.Data))
+		//		log.Printf("-----> Session Write back to client: %s\n", string(r.Response.Data))
+		//		log.Printf("-----> Write Back Frame Length: %d\n", len(r.Response.Data))
 		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
@@ -157,12 +157,12 @@ func (s *NonBlockSession) handleResponse(r *Request) {
 // 处理来自Client的请求
 func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
-	log.Printf("HandleRequest: %s\n", string(request))
-	r := NewRequest(request)
+	//	log.Printf("HandleRequest: %s\n", string(request))
+	r := NewRequest(request, true)
 
 	// 处理心跳
 	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
-		log.Printf(Magenta("PING/PANG"))
+		//		log.Printf(Magenta("PING/PANG"))
 		HandlePingRequest(r)
 		return r, nil
 	}

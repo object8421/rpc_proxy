@@ -79,10 +79,10 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 	//	log.Printf("<==== ReadFrame frame size: %d\n", frameSize)
 	// TODO: 优化
 	bytes := make([]byte, frameSize, frameSize)
-	var l int
-	l, err = p.Reader.Read(bytes)
+	//	var l int
+	_, err = p.Reader.Read(bytes)
 
-	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d\n"), frameSize, l)
+	//	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d\n"), frameSize, l)
 
 	if err != nil {
 		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Data Read Error"))
@@ -178,12 +178,11 @@ func (p *TBufferedFramedTransport) FlushTransport(force bool) error {
 func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	size := p.Buffer.Len()
 
-	//	log.Printf("----> Frame Size: %d\n", size)
-
 	// 1. 将p.buf的大小以BigEndian模式写入: buf中
 	buf := p.LenghW[:4]
 	binary.BigEndian.PutUint32(buf, uint32(size))
 
+	//	log.Printf("----> Frame Size: %d, %v\n", size, buf)
 	// 然后transport中先写入: 长度信息
 	_, err := p.Writer.Write(buf)
 	if err != nil {
@@ -194,7 +193,7 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	if size > 0 {
 		var n int64
 		if n, err = p.Buffer.WriteTo(p.Writer); err != nil {
-			print("Error while flushing write buffer of size ", size, " to transport, only wrote ", n, " bytes: ", err.Error(), "\n")
+			log.ErrorErrorf(err, "Error Flushing Expect Write: %d, but %d\n", size, n)
 			return thrift.NewTTransportExceptionFromError(err)
 		}
 

@@ -39,7 +39,7 @@ func TestBackend(t *testing.T) {
 		l := fakeData("Hello", thrift.CALL, i+1, buf[0:0])
 		buf = buf[0:l]
 
-		req := NewRequest(buf)
+		req := NewRequest(buf, false)
 
 		req.Wait.Add(1) // 因为go routine可能还没有执行，代码就跑到最后面进行校验了
 
@@ -84,7 +84,7 @@ func TestBackend(t *testing.T) {
 			request, err := bt.ReadFrame()
 			assert.NoError(t, err)
 
-			req := NewRequest(request)
+			req := NewRequest(request, false)
 			assert.Equal(t, req.Request.SeqId, i+10)
 			fmt.Printf("Server Got Request, and SeqNum OK, Id: %d, Frame Size: %d\n", i, len(request))
 
@@ -102,7 +102,7 @@ func TestBackend(t *testing.T) {
 		r.Wait.Wait()
 
 		// r 原始的请求
-		req := NewRequest(r.Response.Data)
+		req := NewRequest(r.Response.Data, false)
 
 		log.Printf(Green("SeqMatch[%d]: Orig: %d, Return: %d\n"), idx, req.Request.SeqId, r.Request.SeqId)
 		assert.Equal(t, req.Request.SeqId, r.Request.SeqId)

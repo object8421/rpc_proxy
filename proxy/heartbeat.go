@@ -30,6 +30,7 @@ func NewPingRequest(seqId int32) *Request {
 	protocol.Flush()
 
 	r := &Request{}
+	r.ServiceInRequest = false
 	r.Start = time.Now().Unix()
 	r.Request.Data = transport.Bytes()
 	r.Request.Name = "ping"

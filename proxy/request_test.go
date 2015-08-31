@@ -24,7 +24,7 @@ func TestRequest(t *testing.T) {
 	size := fakeData("demo:hello", thrift.CALL, 0, data[0:0])
 	data = data[0:size]
 
-	r := NewRequest(data)
+	r := NewRequest(data, true)
 
 	if r.Service != "demo" {
 		t.Errorf("Service Name should be: %s", "demo")
@@ -38,7 +38,7 @@ func TestRequest(t *testing.T) {
 	var newSeqId int32 = 10
 	r.ReplaceSeqId(newSeqId)
 
-	r1 := NewRequest(data)
+	r1 := NewRequest(data, true)
 	fmt.Printf("Name: %s, SeqId: %d, TypeId: %d\n", r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
 
 	if r1.Request.SeqId != newSeqId {
@@ -49,6 +49,6 @@ func TestRequest(t *testing.T) {
 	r.RestoreSeqId()
 
 	// 恢复正常
-	r1 = NewRequest(data)
+	r1 = NewRequest(data, true)
 	fmt.Printf("Name: %s, SeqId: %d, TypeId: %d\n", r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
 }
