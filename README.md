@@ -1,26 +1,31 @@
-# ZeroThrift RPC(Go)
+# RPC Proxy
+基于Thrift的RPC Proxy
 ## RPC的分层
-ZeroThrift RPC分为4层，从前端往后端依次标记为L1, L2, L3, L4
+Rpc Proxy分为4层，从前端往后端依次标记为L1, L2, L3, L4
 ### L1层(应用层)
 * 最前端的RPC Client, 主要由thrift中间语言生成代码
-* 将Thrift接口调用的数据经过适配，然后交给zeromq传输层
-* zeromq传输层负责消息的传输，以及超时的处理，过期的message处理
 * 上面思路: 我们修改了transport&protocol两个模块，通过简单的修改得到了python版本的zerothrift
 	* Java, Go等也能很方面地实现自己的RPC Client
 	* 其他语言只要支持Thrift和ZeroMq, 都可以方便地实现自己的Client
 
 ```python
 # Transport层是所有的RPC服务都共用的(除非在同一个请求内部实现了并发)
-_ = get_transport(settings.RPC_LOCAL_PROXY)
+_ = get_base_protocol(settings.RPC_LOCAL_PROXY)
+protocol =  get_service_protocol("typo")
 
-# 获取Client
 from cy_typo.services.TypoService import Client
-protocol = get_protocol("typo")
 _typo_client = Client(protocol)
 
-# 函数调用(需要注意: 所有的字符串都必须是utf8格式的，RPC在序列化string时会自动转换成为utf8)
+
+# 函数调用
 rpc_result = _typo_client.correct_typo(content)
 content = rpc_result.fixed
+
+# 或者使用Pool
+pool = ConnectionPool(10, "127.0.0.1:5550")
+with pool.base_protocol() as base_protocol:
+    protocol = get_service_protocol("typo", base_protocol)
+    client = Client(protocol)
 ```
 * 相应的Python RPC Client&Server的实现: https://github.com/wfxiang08/zerothrift
 
@@ -61,7 +66,7 @@ zk_session_timeout=30
 service=typo
 front_host=
 front_port=5555
-back_address=tcp://127.0.0.1:5556
+back_address=127.0.0.1:5556
 
 # 使用网络的IP, 如果没有指定front_host, 则使用使用当前机器的内网的Ip来注册
 ip_prefix=10.
@@ -70,17 +75,35 @@ ip_prefix=10.
 worker_pool_size=2
 
 ## Client/Proxy
-proxy_address=tcp://127.0.0.1:5550
+proxy_address=127.0.0.1:5550
 
 
 # Go中的deamon似乎不太容易实现，借助: nohup &可以实现类似的效果(Codis也如此)
 nohup rpc_lb -c config.ini -L lb.log >/dev/null 2>&1 &
 ```
 
+### L3层也可以直接就是Rpc服务层，例如:
+* 对于go, java直接在这一层提供服务
+
+```go
+func main() {
+
+	proxy.RpcMain(BINARY_NAME, SERVICE_DESC,
+		// 默认的ThriftServer的配置checker
+		proxy.ConfigCheckThriftService,
+
+		// 可以根据配置config来创建processor
+		func(config *utils.Config) proxy.Server {
+			// 可以根据配置config来创建processor
+			alg.InitGeoFix(FILE_GPS_2_SOGOU)
+			processor := gs.NewGeoLocationServiceProcessor(&alg.GeoLocationService{})
+			return proxy.NewThriftRpcServer(config, processor)
+		})
+}
+```
+
 ### L4层
-* 对于Java/Go等，只需要从zeromq中读取task, 然后再返回处理的结果即可
-	* 可以和L3组合，避免再自己去处理服务的注册等逻辑
-* 对于Python, 直接使用zerothrift python框架即可
+* 对于Python, rpc_proxy python框架即可
 	* 通过thrift idl生成接口, Processor等
 	* 实现Processor的接口
 	* 合理地配置参数
@@ -95,11 +118,10 @@ class TypoProcessor(object):
         # print "Query: ", query
         result = TypoResult()
         new_query, mappings = typo_manager.correct_typo(query)
-        result.fixed = ensure_utf8(new_query)
+        result.fixed = new_query
         result.fixes = []
         for old, new in mappings:
-			# 注意字符串的编码: utf8
-            result.fixes.append(FixedTerm(ensure_utf8(old), ensure_utf8(new)))
+            result.fixes.append(FixedTerm(old, new))
         return result
 
 config_path = "config.ini"
@@ -109,17 +131,16 @@ service = config["service"]
 worker_pool_size = int(config["worker_pool_size"])
 
 processor = Processor(TypoProcessor())
-s = Server(processor, pool_size=worker_pool_size, mode_ppworker = True, service=service)
+s = RpcWorker(processor, endpoint, pool_size=worker_pool_size, service=service)
 s.connect(endpoint)
 s.run()
 ```
 
 ## 运维部署
 * 编译:
-	* go build github.com/wfxiang08/rpc_proxy/demo/rpc_lb.go
-	* go build github.com/wfxiang08/rpc_proxy/demo/rpc_proxy.go
+	* go build git.chunyu.me/infra/rpc_proxy/cmd/rpc_lb.go
+	* go build git.chunyu.me/infra/rpc_proxy/cmd/rpc_proxy.go
 	* scp rpc_* node:/usr/local/bin/
 	* sudo cp rpc_* /usr/local/bin/
+	* 然后control_proxy.sh脚本和control_lb.sh脚本也需要部署在合适的地方
 
-* zeromq的安装部署
-	* https://github.com/wfxiang08/rpc_proxy/blob/master/INSTALL.md
