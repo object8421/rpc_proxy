@@ -53,7 +53,7 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 			log.Printf(Red("No BackSocket Found for service: %s.%s\n"), s.serviceName, r.Request.Name)
 		}
 		// 从errMsg来构建异常
-		errMsg := GetWorkerNotFoundData(r)
+		errMsg := GetWorkerNotFoundData(r, "BackServiceLB")
 		log.Printf(Magenta("---->Convert Error Back to Exception:[%d] %s\n"), len(errMsg), string(errMsg))
 		r.Response.Data = errMsg
 

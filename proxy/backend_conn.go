@@ -27,7 +27,7 @@ type BackendConn struct {
 	currentSeqId   int32 // 范围: 1 ~ 100000
 
 	Index         int
-	delegate      BackendConnStateChanged
+	delegate      *BackService
 	ticker        *time.Ticker
 	lastHbTime    int64
 	IsMarkOffline bool // 是否标记下线
@@ -35,7 +35,7 @@ type BackendConn struct {
 	verbose       bool
 }
 
-func NewBackendConn(addr string, delegate BackendConnStateChanged, verbose bool) *BackendConn {
+func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendConn {
 	bc := &BackendConn{
 		addr:           addr,
 		input:          make(chan *Request, 1024),
@@ -58,7 +58,7 @@ func (bc *BackendConn) Heartbeat() {
 	for true {
 		select {
 		case <-bc.ticker.C:
-			if time.Now().Unix()-bc.lastHbTime > 4 {
+			if time.Now().Unix()-bc.lastHbTime > 6 {
 				bc.MarkConnActiveFalse()
 			}
 			// 定时添加Ping的任务
@@ -75,12 +75,12 @@ func (bc *BackendConn) MarkOffline() {
 }
 
 func (bc *BackendConn) MarkConnActiveFalse() {
+	log.Printf(Red("MarkConnActiveFalse: %s, %p\n"), bc.addr, bc.delegate)
 	// 从Active切换到非正常状态
-	if bc.IsConnActive && bc.delegate != nil {
-		bc.IsConnActive = false
+	bc.IsConnActive = false
+
+	if bc.delegate != nil {
 		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-	} else {
-		bc.IsConnActive = false
 	}
 }
 
@@ -88,12 +88,13 @@ func (bc *BackendConn) MarkConnActiveFalse() {
 // 从Active切换到非正常状态
 //
 func (bc *BackendConn) MarkConnActiveOK() {
-	if !bc.IsMarkOffline {
-		bc.IsConnActive = true
-		if bc.delegate != nil {
-			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-		}
+	log.Printf(Green("MarkConnActiveOK: %s, %p\n"), bc.addr, bc.delegate)
+
+	bc.IsConnActive = true
+	if bc.delegate != nil {
+		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
 	}
+
 }
 
 //
@@ -172,7 +173,7 @@ func (bc *BackendConn) loopWriter() error {
 					r, ok = <-bc.input
 					continue
 				} else {
-					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr())
+					//					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr())
 				}
 			}
 			// 如果有5s没有收到HB信号，则报错
@@ -310,7 +311,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
-			log.Printf(Magenta("Get Ping/Pang Back\n"))
+			//			log.Printf(Magenta("Get Ping/Pang Back\n"))
 			bc.lastHbTime = time.Now().Unix()
 			return nil
 		}

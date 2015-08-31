@@ -137,9 +137,9 @@ func (bc *BackendConnLB) Close() {
 //
 func (bc *BackendConnLB) PushBack(r *Request) {
 	// 关键路径必须有Log, 高频路径的Log需要受verbose状态的控制
-	if bc.verbose {
-		log.Printf("Add New Request To BackendConnLB: %s %s\n", r.Service, r.Request.Name)
-	}
+	//	if bc.verbose {
+	//		log.Printf("Add New Request To BackendConnLB: %s %s\n", r.Service, r.Request.Name)
+	//	}
 
 	r.Service = bc.serviceName
 
@@ -177,7 +177,7 @@ func (bc *BackendConnLB) loopWriter() error {
 					r, ok = <-bc.input
 					continue
 				} else {
-					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr4Log())
+					//					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr4Log())
 				}
 			}
 			var flush = len(bc.input) == 0
@@ -188,14 +188,14 @@ func (bc *BackendConnLB) loopWriter() error {
 
 			// 2. 主动控制Buffer的flush
 
-			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
+			//			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
 			c.Write(r.Request.Data)
 			err := c.FlushBuffer(flush)
 
 			if err == nil {
-				if bc.verbose {
-					log.Printf(Cyan("Flush Task to Python RPC Woker: SeqId: %d\n"), r.Response.SeqId)
-				}
+				//				if bc.verbose {
+				//					log.Printf(Cyan("Flush Task to Python RPC Woker: SeqId: %d\n"), r.Response.SeqId)
+				//				}
 				bc.IncreaseCurrentSeqId()
 				bc.Lock()
 				bc.seqNum2Request[r.Response.SeqId] = r
@@ -271,10 +271,14 @@ func (bc *BackendConnLB) flushRequests(err error) {
 	bc.Unlock()
 
 	for _, request := range seqRequest {
-		log.Printf(Red("Handle Failed Request: %s.%s"), request.Service, request.Request.Name)
-		request.Response.Err = err
-		if request.Wait != nil {
-			request.Wait.Done()
+		if request.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+			// 心跳出错了，则直接直接跳过
+		} else {
+			log.Printf(Red("Handle Failed Request: %s.%s"), request.Service, request.Request.Name)
+			request.Response.Err = err
+			if request.Wait != nil {
+				request.Wait.Done()
+			}
 		}
 	}
 

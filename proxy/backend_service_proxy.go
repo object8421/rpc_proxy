@@ -139,9 +139,8 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 			log.Println(Red("No BackSocket Found for service:"), s.serviceName)
 		}
 		// 从errMsg来构建异常
-		errMsg := GetWorkerNotFoundData(req)
+		errMsg := GetWorkerNotFoundData(req, "BackService")
 		req.Response.Data = errMsg
-		//		req.Wait.Done()
 
 		return nil
 	} else {
@@ -154,9 +153,10 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 }
 
 func (s *BackService) StateChanged(conn *BackendConn) {
-	return
 	s.Lock()
 	if conn.IsConnActive {
+		log.Printf(Green("MarkConnActiveOK: %s, Index: %d, Count: %d\n"), conn.addr, conn.Addr(), len(s.activeConns))
+
 		if conn.Index == -1 {
 			conn.Index = len(s.activeConns)
 			log.Printf(Red("Add BackendConn to activeConns: %s, Total Actives: %d\n"), conn.Addr(), conn.Index)
@@ -172,10 +172,10 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 				lastConn := s.activeConns[lastIndex]
 				s.activeConns[conn.Index] = lastConn
 				lastConn.Index = conn.Index
-
-				conn.Index = -1
-				s.activeConns[lastIndex] = nil
 			}
+
+			s.activeConns[lastIndex] = nil
+			conn.Index = -1
 			// slice
 			s.activeConns = s.activeConns[0:lastIndex]
 			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
