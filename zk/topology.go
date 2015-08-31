@@ -34,7 +34,7 @@ var green = color.New(color.FgGreen).SprintFunc()
 type Topology struct {
 	ProductName string        // 例如: 线上服务， 测试服务等等
 	zkAddr      string        // zk的地址
-	zkConn      zkhelper.Conn // zk的连接
+	ZkConn      zkhelper.Conn // zk的连接
 	basePath    string
 }
 
@@ -65,7 +65,7 @@ func (top *Topology) FullPath(path string) string {
 // 指定的path是否在zk中存在
 func (top *Topology) Exist(path string) (bool, error) {
 	path = top.FullPath(path)
-	return zkhelper.NodeExists(top.zkConn, path)
+	return zkhelper.NodeExists(top.ZkConn, path)
 }
 
 func NewTopology(ProductName string, zkAddr string) *Topology {
@@ -80,7 +80,7 @@ func (top *Topology) InitZkConn() {
 	var err error
 	// 连接到zk
 	// 30s的timeout
-	top.zkConn, err = zkhelper.ConnectToZk(top.zkAddr, 30) // 参考: Codis的默认配置
+	top.ZkConn, err = zkhelper.ConnectToZk(top.zkAddr, 30) // 参考: Codis的默认配置
 	if err != nil {
 		log.PanicErrorf(err, "init failed")
 	}
@@ -93,7 +93,7 @@ func (top *Topology) IsChildrenChangedEvent(e interface{}) bool {
 func (top *Topology) DeleteDir(path string) {
 	dir := top.FullPath(path)
 	if ok, _ := top.Exist(dir); ok {
-		zkhelper.DeleteRecursive(top.zkConn, dir, -1)
+		zkhelper.DeleteRecursive(top.ZkConn, dir, -1)
 	}
 }
 
@@ -104,60 +104,13 @@ func (top *Topology) CreateDir(path string) (string, error) {
 		log.Println("Path Exists")
 		return dir, nil
 	} else {
-		return zkhelper.CreateRecursive(top.zkConn, dir, "", 0, zkhelper.DefaultDirACLs())
+		return zkhelper.CreateRecursive(top.ZkConn, dir, "", 0, zkhelper.DefaultDirACLs())
 	}
 }
 
 func (top *Topology) SetPathData(path string, data []byte) {
 	dir := top.FullPath(path)
-	top.zkConn.Set(dir, data, -1)
-}
-
-func (top *Topology) DeleteServiceEndPoint(service string, endpoint string) {
-	path := top.ProductServiceEndPointPath(service, endpoint)
-	zkhelper.DeleteRecursive(top.zkConn, path, -1)
-}
-
-//
-// 注册一个服务的Endpoints
-//
-func (top *Topology) AddServiceEndPoint(service string, endpoint string, endpointInfo map[string]interface{}) error {
-	path := top.ProductServiceEndPointPath(service, endpoint)
-	data, err := json.Marshal(endpointInfo)
-	if err != nil {
-		return err
-	}
-
-	// 创建Service(XXX: Service本身不包含数据)
-	CreateRecursive(top.zkConn, os_path.Dir(path), "", 0, zkhelper.DefaultDirACLs())
-
-	// 当前的Session挂了，服务就下线
-	// topo.FlagEphemeral
-
-	// 参考： https://www.box.com/blog/a-gotcha-when-using-zookeeper-ephemeral-nodes/
-	// 如果之前的Session信息还存在，则先删除；然后再添加
-	top.zkConn.Delete(path, -1)
-	var pathCreated string
-	pathCreated, err = top.zkConn.Create(path, []byte(data), int32(topo.FlagEphemeral), zkhelper.DefaultFileACLs())
-
-	log.Println(green("SetRpcProxyData"), "Path: ", pathCreated, ", Error: ", err)
-	return err
-}
-
-func (top *Topology) GetServiceEndPoint(service string, endpoint string) (endpointInfo map[string]interface{}, err error) {
-
-	path := top.ProductServiceEndPointPath(service, endpoint)
-	data, _, err := top.zkConn.Get(path)
-	if err != nil {
-		return nil, err
-	}
-	endpointInfo = make(map[string]interface{})
-	err = json.Unmarshal(data, &endpointInfo)
-	if err != nil {
-		return nil, err
-	} else {
-		return endpointInfo, nil
-	}
+	top.ZkConn.Set(dir, data, -1)
 }
 
 //
@@ -172,7 +125,7 @@ func (top *Topology) SetRpcProxyData(proxyInfo map[string]interface{}) error {
 	}
 
 	// topo.FlagEphemeral 这里的ProxyInfo是手动配置的，需要持久化
-	path, err = CreateOrUpdate(top.zkConn, path, string(data), 0, zkhelper.DefaultDirACLs(), true)
+	path, err = CreateOrUpdate(top.ZkConn, path, string(data), 0, zkhelper.DefaultDirACLs(), true)
 	log.Println(green("SetRpcProxyData"), "Path: ", path, ", Error: ", err, ", Data: ", string(data))
 	return err
 }
@@ -183,7 +136,7 @@ func (top *Topology) SetRpcProxyData(proxyInfo map[string]interface{}) error {
 //
 func (top *Topology) GetRpcProxyData() (proxyInfo map[string]interface{}, e error) {
 	path := top.FullPath("/rpc_proxy")
-	data, _, err := top.zkConn.Get(path)
+	data, _, err := top.ZkConn.Get(path)
 
 	log.Println("Data: ", data, ", err: ", err)
 	if err != nil {
@@ -231,7 +184,7 @@ func (top *Topology) doWatch(evtch <-chan topo.Event, evtbus chan interface{}) {
 
 func (top *Topology) WatchChildren(path string, evtbus chan interface{}) ([]string, error) {
 	// 获取Children的信息
-	content, _, evtch, err := top.zkConn.ChildrenW(path)
+	content, _, evtch, err := top.ZkConn.ChildrenW(path)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -242,7 +195,7 @@ func (top *Topology) WatchChildren(path string, evtbus chan interface{}) ([]stri
 
 // 读取当前path对应的数据，监听之后的事件
 func (top *Topology) WatchNode(path string, evtbus chan interface{}) ([]byte, error) {
-	content, _, evtch, err := top.zkConn.GetW(path)
+	content, _, evtch, err := top.ZkConn.GetW(path)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

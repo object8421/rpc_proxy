@@ -14,8 +14,8 @@ import (
 
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"git.chunyu.me/infra/zkhelper"
 	"github.com/c4pt0r/cfg"
-	"github.com/wandoulabs/zkhelper"
 )
 
 func InitConfig() (*cfg.Cfg, error) {
