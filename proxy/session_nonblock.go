@@ -58,7 +58,7 @@ func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool, b
 	// 还是基于c net.Conn进行读写，只是采用Redis协议进行编码解码
 	// Reader 处理Client发送过来的消息
 	// Writer 将后端服务的数据返回给Client
-	log.Infof("session [%p] create: %s", s, s)
+	log.Printf(Green("Session From Proxy [%s] created\n"), address)
 	return s
 }
 

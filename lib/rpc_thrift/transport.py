@@ -2,7 +2,58 @@
 from __future__ import absolute_import
 from StringIO import StringIO
 from struct import pack, unpack
-from thrift.transport.TTransport import TTransportBase
+
+from thrift.transport.TTransport import TTransportBase, TTransportException
+
+
+class TAutoConnectSocket(TTransportBase):
+    """
+        将socket进行包装，提供了自动重连的功能
+    """
+    def __init__(self, socket):
+        self.socket = socket
+
+    def isOpen(self):
+        return self.socket.isOpen()
+
+    def open(self):
+        self.socket.open()
+
+    def close(self):
+        self.socket.close()
+
+    def flush(self):
+        self.socket.flush()
+
+    def read(self, sz):
+        if not self.isOpen():
+            self.open()
+
+        try:
+            return self.socket.read(sz)
+        except TTransportException as e:
+            self.close()
+            raise
+
+    def write(self, buf):
+        if not self.isOpen():
+            self.open()
+
+        try:
+            self.socket.write( buf)
+        except TTransportException as e:
+            self.close()
+            raise
+
+    def readAll(self, sz):
+        if not self.isOpen():
+            self.open()
+
+        try:
+            return self.socket.readAll(sz)
+        except:
+            self.close()
+            raise
 
 
 class TFramedTransportEx(TTransportBase):
@@ -10,6 +61,7 @@ class TFramedTransportEx(TTransportBase):
         和 TFramedTransport的区别:
             多了一个 readFrameEx 函数, 由于 TFramedTransport 中的变量 __wbuf, __rbuf不能直接访问，因此就重写了该类
     """
+
     def __init__(self, trans, ):
         self.trans = trans
         self.wbuf = StringIO()
