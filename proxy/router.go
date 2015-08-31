@@ -1,10 +1,9 @@
-//// Copyright 2014 Wandoujia Inc. All Rights Reserved.
+//// Copyright 2015 Spring Rain Software Compnay LTD. All Rights Reserved.
 //// Licensed under the MIT (MIT-LICENSE.txt) license.
 
 package proxy
 
 import (
-	"errors"
 	"fmt"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
@@ -138,44 +137,3 @@ func (bk *Router) GetBackService(service string) *BackService {
 		return nil
 	}
 }
-
-func (s *Router) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	return nil
-}
-
-var errClosedRouter = errors.New("use of closed router")
-
-func (s *Router) KeepAlive() error {
-	//	s.mu.Lock()
-	//	defer s.mu.Unlock()
-	//	if s.closed {
-	//		return errClosedRouter
-	//	}
-	//	for _, bc := range s.pool {
-	//		bc.KeepAlive()
-	//	}
-	return nil
-}
-
-//func (s *Router) getBackendConn(addr string) *SharedBackendConn {
-//	bc := s.pool[addr]
-//	if bc != nil {
-//		bc.IncrRefcnt()
-//	} else {
-//		bc = NewSharedBackendConn(addr, s.auth)
-//		s.pool[addr] = bc
-//	}
-//	return bc
-//}
-
-//func (s *Router) putBackendConn(bc *SharedBackendConn) {
-//	if bc != nil && bc.Close() {
-//		delete(s.pool, bc.Addr())
-//	}
-//}

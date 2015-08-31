@@ -1,3 +1,5 @@
+//// Copyright 2015 Spring Rain Software Compnay LTD. All Rights Reserved.
+//// Licensed under the MIT (MIT-LICENSE.txt) license.
 package proxy
 
 import (
@@ -61,7 +63,7 @@ func (bc *BackendConn) Heartbeat() {
 		for true {
 			select {
 			case <-bc.hbTicker.C:
-				if time.Now().Unix()-bc.hbLastTime > 6 {
+				if time.Now().Unix()-bc.hbLastTime > HB_TIMEOUT {
 					bc.hbTimeout <- true
 				} else {
 					if bc.IsConnActive {
@@ -79,6 +81,9 @@ func (bc *BackendConn) MarkOffline() {
 	if !bc.IsMarkOffline {
 		log.Printf(Red("BackendConn: %s MarkOffline\n"), bc.addr)
 		bc.IsMarkOffline = true
+
+		// 不再接受新的输入
+		bc.MarkConnActiveFalse()
 	}
 }
 
@@ -131,7 +136,7 @@ func (bc *BackendConn) PushBack(r *Request) {
 //
 func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 	// 1. 创建连接(只要IP没有问题， err一般就是空)
-	socket, err = thrift.NewTSocketTimeout(bc.addr, time.Hour*3)
+	socket, err = thrift.NewTSocketTimeout(bc.addr, time.Second*5)
 	log.Printf(Cyan("Create Socket To: %s\n"), bc.addr)
 
 	if err != nil {

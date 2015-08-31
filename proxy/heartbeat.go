@@ -1,8 +1,14 @@
+//// Copyright 2015 Spring Rain Software Compnay LTD. All Rights Reserved.
+//// Licensed under the MIT (MIT-LICENSE.txt) license.
 package proxy
 
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"time"
+)
+
+const (
+	HB_TIMEOUT = 6
 )
 
 //
