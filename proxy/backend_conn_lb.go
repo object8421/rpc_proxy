@@ -286,7 +286,9 @@ func (bc *BackendConnLB) flushRequests(err error) {
 	for _, request := range seqRequest {
 		log.Printf(Red("Handle Failed Request: %s.%s"), request.Service, request.Request.Name)
 		request.Response.Err = err
-		request.Wait.Done()
+		if request.Wait != nil {
+			request.Wait.Done()
+		}
 	}
 
 	// 关闭输入

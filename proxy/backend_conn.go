@@ -335,6 +335,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
+			log.Printf(Magenta("Get Ping/Pang Back\n"))
 			bc.lastHbTime = time.Now().Unix()
 			return nil
 		}

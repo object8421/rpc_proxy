@@ -50,7 +50,7 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 	if backendConn == nil {
 		// 没有后端服务
 		if s.verbose {
-			log.Println(Red("No BackSocket Found for service:"), s.serviceName)
+			log.Printf(Red("No BackSocket Found for service: %s.%s\n"), s.serviceName, r.Request.Name)
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(r)

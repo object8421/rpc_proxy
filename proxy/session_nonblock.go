@@ -157,11 +157,12 @@ func (s *NonBlockSession) handleResponse(r *Request) {
 // 处理来自Client的请求
 func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
-	//	log.Printf("HandleRequest: %s\n", string(request))
+	log.Printf("HandleRequest: %s\n", string(request))
 	r := NewRequest(request)
 
 	// 处理心跳
 	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+		log.Printf(Magenta("PING/PANG"))
 		HandlePingRequest(r)
 		return r, nil
 	}

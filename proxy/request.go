@@ -3,7 +3,6 @@ package proxy
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
-	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"strings"
 	"sync"
 )
@@ -13,8 +12,9 @@ type Dispatcher interface {
 }
 
 const (
-	MESSAGE_TYPE_HEART_BEAT thrift.TMessageType = -1
-	MESSAGE_TYPE_STOP       thrift.TMessageType = -2
+	// 不能使用负数
+	MESSAGE_TYPE_HEART_BEAT thrift.TMessageType = 20
+	MESSAGE_TYPE_STOP       thrift.TMessageType = 21
 )
 
 type Request struct {
