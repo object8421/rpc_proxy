@@ -165,7 +165,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 // 只有在conn出现错误时才会调用
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 	s.Lock()
-	if conn.State == ConnStateActive {
+	if conn.IsConnActive {
 		log.Printf(Magenta("Unexpected BackendConnLB State\n"))
 		if s.verbose {
 			panic("Unexpected BackendConnLB State")

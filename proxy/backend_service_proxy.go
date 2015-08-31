@@ -56,42 +56,44 @@ func (s *BackService) WatchBackServiceNodes() {
 
 			if err == nil {
 				// 如何监听endpoints的变化呢?
-				addressList := make([]string, 0, 10)
-				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
-				for _, serviceId := range serviceIds {
+				addressMap := make(map[string]bool, len(serviceIds))
 
-					log.Println(Green("---->Find Endpoint: "), serviceId, "For Service: ", s.serviceName)
+				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
+
+				for _, serviceId := range serviceIds {
+					log.Printf(Green("---->Find Endpoint: %s for Service: %s\n"), serviceId, s.serviceName)
 					endpointInfo, err := GetServiceEndpoint(s.topo, s.serviceName, serviceId)
+
 					if err != nil {
 						log.ErrorErrorf(err, "Service Endpoint Read Error: %v\n", err)
 					} else {
 
-						addrStr := endpointInfo.Frontend
-						log.Println(Green("---->Add endpoint to backend: "), addrStr, nowStr, "For Service: ", s.serviceName)
-						addressList = append(addressList, addrStr)
+						log.Printf(Green("---->Add endpoint %s To Service %s @ %s\n"),
+							endpointInfo.Frontend, s.serviceName, nowStr)
+						addressMap[endpointInfo.Frontend] = true
 					}
 				}
 
-				// 如何更新BackendConn呢?
 				s.Lock()
-				for _, addr := range addressList {
+
+				for addr, _ := range addressMap {
 
 					conn, ok := s.addr2Conn[addr]
-					if ok {
-						switch conn.State {
-						case ConnStateActive:
-							// 什么也不做
-						case ConnStateDied, ConnStateMarkOffline:
-							conn.State = ConnStateInit
-							// TODO: 重新开始连接
-						}
+					if ok && !conn.IsMarkOffline {
+						continue
 					} else {
-						conn := NewBackendConn(addr, s)
-						s.addr2Conn[addr] = conn
-						log.Printf(Red("Add BackendConn to activeConns: %s\n"), addr)
-						//						s.RLock()
-						s.activeConns = append(s.activeConns, conn)
-						//						s.RUnLock()
+						// 创建新的连接（心跳成功之后就自动加入到 s.activeConns 中
+						s.addr2Conn[addr] = NewBackendConn(addr, s, s.verbose)
+					}
+				}
+
+				for addr, conn := range s.addr2Conn {
+					_, ok := addressMap[addr]
+					if !ok {
+						conn.MarkOffline()
+
+						// 删除: 然后等待Conn自生自灭
+						delete(s.addr2Conn, addr)
 					}
 				}
 				s.Unlock()
@@ -154,26 +156,29 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 func (s *BackService) StateChanged(conn *BackendConn) {
 	return
 	s.Lock()
-	if conn.State == ConnStateActive {
-		conn.Index = len(s.activeConns)
-		log.Printf(Red("Add BackendConn to activeConns: %s\n"), conn.Addr())
-		s.activeConns = append(s.activeConns, conn)
+	if conn.IsConnActive {
+		if conn.Index == -1 {
+			conn.Index = len(s.activeConns)
+			log.Printf(Red("Add BackendConn to activeConns: %s, Total Actives: %d\n"), conn.Addr(), conn.Index)
+			s.activeConns = append(s.activeConns, conn)
+		}
 	} else {
 		if conn.Index != -1 {
 			lastIndex := len(s.activeConns) - 1
+
+			// 将最后一个元素和当前的元素交换位置
 			if lastIndex != conn.Index {
+
 				lastConn := s.activeConns[lastIndex]
-				// 将最后一个元素和当前的元素交换位置
 				s.activeConns[conn.Index] = lastConn
 				lastConn.Index = conn.Index
+
 				conn.Index = -1
-
-				// slice
-				s.activeConns = s.activeConns[0:lastIndex]
-
-				log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
-
+				s.activeConns[lastIndex] = nil
 			}
+			// slice
+			s.activeConns = s.activeConns[0:lastIndex]
+			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
 		}
 	}
 	s.Unlock()

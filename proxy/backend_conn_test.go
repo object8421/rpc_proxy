@@ -50,7 +50,7 @@ func TestBackend(t *testing.T) {
 
 	go func() {
 		// 客户端代码
-		bc := NewBackendConn(addr, nil)
+		bc := NewBackendConn(addr, nil, true)
 		bc.currentSeqId = 10
 		defer bc.Close()
 

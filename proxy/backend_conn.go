@@ -11,17 +11,6 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 )
 
-// 连接的状态
-type ConnState int32
-
-const (
-	ConnStateInit        ConnState = iota // 初始状态
-	ConnStateFailed                       // 连接失败的状态，后续继续尝试连接
-	ConnStateActive                       // 激活状态
-	ConnStateMarkOffline                  // 标记下线状态(等待所有的请求处理完毕，则下线)
-	ConnStateDied                         // 结束
-)
-
 type BackendConnStateChanged interface {
 	StateChanged(conn *BackendConn)
 }
@@ -36,22 +25,27 @@ type BackendConn struct {
 	sync.Mutex
 	seqNum2Request map[int32]*Request
 	currentSeqId   int32 // 范围: 1 ~ 100000
-	State          ConnState
-	Index          int
-	delegate       BackendConnStateChanged
-	ticker         *time.Ticker
-	lastHbTime     int64
+
+	Index         int
+	delegate      BackendConnStateChanged
+	ticker        *time.Ticker
+	lastHbTime    int64
+	IsMarkOffline bool // 是否标记下线
+	IsConnActive  bool // 是否处于Active状态呢
+	verbose       bool
 }
 
-func NewBackendConn(addr string, delegate BackendConnStateChanged) *BackendConn {
+func NewBackendConn(addr string, delegate BackendConnStateChanged, verbose bool) *BackendConn {
 	bc := &BackendConn{
 		addr:           addr,
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		currentSeqId:   1,
-		State:          ConnStateInit,
 		Index:          -1,
 		delegate:       delegate,
+		IsConnActive:   false,
+		IsMarkOffline:  false,
+		verbose:        verbose,
 	}
 	go bc.Run()
 	go bc.Heartbeat()
@@ -65,17 +59,39 @@ func (bc *BackendConn) Heartbeat() {
 		select {
 		case <-bc.ticker.C:
 			if time.Now().Unix()-bc.lastHbTime > 4 {
-				// 标志状态出现问题
-				if bc.State == ConnStateActive && bc.delegate != nil {
-					bc.State = ConnStateFailed
-					bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-				} else {
-					bc.State = ConnStateFailed
-				}
+				bc.MarkConnActiveFalse()
 			}
 			// 定时添加Ping的任务
 			r := NewPingRequest(0)
 			bc.PushBack(r)
+		}
+	}
+}
+
+func (bc *BackendConn) MarkOffline() {
+	log.Printf(Red("BackendConn: %s MarkOffline\n"), bc.addr)
+
+	bc.IsMarkOffline = true
+}
+
+func (bc *BackendConn) MarkConnActiveFalse() {
+	// 从Active切换到非正常状态
+	if bc.IsConnActive && bc.delegate != nil {
+		bc.IsConnActive = false
+		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+	} else {
+		bc.IsConnActive = false
+	}
+}
+
+//
+// 从Active切换到非正常状态
+//
+func (bc *BackendConn) MarkConnActiveOK() {
+	if !bc.IsMarkOffline {
+		bc.IsConnActive = true
+		if bc.delegate != nil {
+			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
 		}
 	}
 }
@@ -85,16 +101,13 @@ func (bc *BackendConn) Heartbeat() {
 //
 func (bc *BackendConn) Run() {
 	log.Infof("backend conn [%p] to %s, start service", bc, bc.addr)
-	for k := 0; ; k++ {
+
+	for k := 0; !bc.IsMarkOffline; k++ {
+
 		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 		err := bc.loopWriter()
-		// 从Active切换到非正常状态
-		if bc.State == ConnStateActive && bc.delegate != nil {
-			bc.State = ConnStateFailed
-			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-		} else {
-			bc.State = ConnStateFailed
-		}
+		// 标记状态异常
+		bc.MarkConnActiveFalse()
 
 		if err == nil {
 			log.Println(Red("BackendConn#loopWriter normal Exit..."))
@@ -132,25 +145,6 @@ func (bc *BackendConn) PushBack(r *Request) {
 	bc.input <- r
 }
 
-func (bc *BackendConn) KeepAlive() bool {
-	return false
-	//	if len(bc.input) != 0 {
-	//		return false
-	//	}
-	//	r := &Request{
-	//		Resp: redis.NewArray([]*redis.Resp{
-	//			redis.NewBulkBytes([]byte("PING")),
-	//		}),
-	//	}
-
-	//	select {
-	//	case bc.input <- r:
-	//		return true
-	//	default:
-	//		return false
-	//	}
-}
-
 var ErrFailedRequest = errors.New("discard failed request")
 
 func (bc *BackendConn) loopWriter() error {
@@ -166,10 +160,7 @@ func (bc *BackendConn) loopWriter() error {
 		}
 
 		// 现在进入可用状态
-		bc.State = ConnStateActive
-		if bc.delegate != nil {
-			bc.delegate.StateChanged(bc)
-		}
+		bc.MarkConnActiveOK()
 
 		for ok {
 			// 如果暂时没有数据输入，则p策略可能就有问题了
@@ -183,6 +174,10 @@ func (bc *BackendConn) loopWriter() error {
 				} else {
 					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr())
 				}
+			}
+			// 如果有5s没有收到HB信号，则报错
+			if time.Now().Unix()-bc.lastHbTime > 5 {
+				return bc.setResponse(r, nil, errors.New("HB timeout"))
 			}
 
 			var flush = len(bc.input) == 0
@@ -208,18 +203,9 @@ func (bc *BackendConn) loopWriter() error {
 			}
 
 			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-			bc.State = ConnStateFailed
-			if bc.delegate != nil {
-				bc.delegate.StateChanged(bc)
-			}
+			bc.MarkConnActiveFalse()
 
 			return bc.setResponse(r, nil, err)
-
-			//			// 请求压根就没有发送
-			//			bc.setResponse(r, nil, ErrFailedRequest)
-
-			//			// 继续读取请求, 如果有异常，如何处理呢?
-			//			r, ok = <-bc.input
 		}
 	}
 	return nil
@@ -263,7 +249,7 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 		defer c.Close()
 
 		for true {
-			// 读取来自后端服务的数据
+			// 读取来自后端服务的数据，通过 setResponse 转交给 前端
 			// client <---> proxy <-----> backend_conn <---> rpc_server
 			// ReadFrame需要有一个度? 如果碰到EOF该如何处理呢?
 
@@ -289,9 +275,7 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 // 处理所有的等待中的请求
 func (bc *BackendConn) flushRequests(err error) {
 	// 告诉BackendService, 不再接受新的请求
-	if bc.delegate != nil {
-		bc.delegate.StateChanged(bc)
-	}
+	bc.MarkConnActiveFalse()
 
 	bc.Lock()
 	seqRequest := bc.seqNum2Request
@@ -306,15 +290,6 @@ func (bc *BackendConn) flushRequests(err error) {
 		}
 	}
 
-}
-
-func (bc *BackendConn) canForward(r *Request) bool {
-	return bc.State == ConnStateActive
-	//	if r.Failed != nil && r.Failed.Get() {
-	//		return false
-	//	} else {
-	//		return true
-	//	}
 }
 
 // 配对 Request, resp, err
@@ -371,50 +346,9 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	if r.Wait != nil {
 		r.Wait.Done()
 	}
-	//	if r.slot != nil {
-	//		r.slot.Done()
-	//	}
+
 	return err
 }
-
-////
-//// 通过引用计数管理后端的BackendConn
-////
-//type SharedBackendConn struct {
-//	*BackendConn
-//	mu sync.Mutex
-
-//	refcnt int
-//}
-
-//func NewSharedBackendConn(addr string, delegate BackendConnStateChanged) *SharedBackendConn {
-//	return &SharedBackendConn{BackendConn: NewBackendConn(addr, delegate), refcnt: 1}
-//}
-
-//func (s *SharedBackendConn) Close() bool {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	if s.refcnt <= 0 {
-//		log.Panicf("shared backend conn has been closed, close too many times")
-//	}
-//	if s.refcnt == 1 {
-//		s.BackendConn.Close()
-//	}
-//	s.refcnt--
-//	return s.refcnt == 0
-//}
-
-//// Close之后不能再引用
-//// socket不能多次打开，必须重建
-////
-//func (s *SharedBackendConn) IncrRefcnt() {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	if s.refcnt == 0 {
-//		log.Panicf("shared backend conn has been closed")
-//	}
-//	s.refcnt++
-//}
 
 func FormatYYYYmmDDHHMMSS(date time.Time) string {
 	return date.Format("@2006-01-02 15:04:05")

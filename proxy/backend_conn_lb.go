@@ -29,7 +29,7 @@ type BackendConnLB struct {
 	Index          int
 	delegate       BackendConnLBStateChanged
 	verbose        bool
-	State          ConnState
+	IsConnActive   bool // 是否处于Active状态呢
 
 	ticker     *time.Ticker
 	lastHbTime int64
@@ -57,7 +57,7 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		seqNum2Request: make(map[int32]*Request, 4096),
 		currentSeqId:   1,
 		Index:          -1,
-		State:          ConnStateActive, // 因为transport是刚刚建立的，因此直接认为该transport有效(以后可能需要添加有效性检测)
+		IsConnActive:   true, // 因为transport是刚刚建立的，因此直接认为该transport有效(以后可能需要添加有效性检测)
 		delegate:       delegate,
 		verbose:        verbose,
 	}
@@ -73,18 +73,23 @@ func (bc *BackendConnLB) Heartbeat() {
 		select {
 		case <-bc.ticker.C:
 			if time.Now().Unix()-bc.lastHbTime > 4 {
-				// 标志状态出现问题
-				if bc.State == ConnStateActive && bc.delegate != nil {
-					bc.State = ConnStateFailed
-					bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
-				} else {
-					bc.State = ConnStateFailed
-				}
+				bc.MarkConnActiveFalse()
 			}
+
 			// 定时添加Ping的任务
 			r := NewPingRequest(0)
 			bc.PushBack(r)
 		}
+	}
+}
+
+func (bc *BackendConnLB) MarkConnActiveFalse() {
+	// 从Active切换到非正常状态
+	if bc.IsConnActive && bc.delegate != nil {
+		bc.IsConnActive = false
+		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+	} else {
+		bc.IsConnActive = false
 	}
 }
 
@@ -97,8 +102,7 @@ func (bc *BackendConnLB) Run() {
 
 	// 2. 从Active切换到非正常状态, 同时不再从backend_service_lb接受新的任务
 	//    可能出现异常，也可能正常退出(反正不干活了)
-	bc.State = ConnStateFailed
-	bc.delegate.StateChanged(bc)
+	bc.MarkConnActiveFalse()
 
 	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.addr4Log)
 
@@ -140,25 +144,6 @@ func (bc *BackendConnLB) PushBack(r *Request) {
 		r.Wait.Add(1)
 	}
 	bc.input <- r
-}
-
-func (bc *BackendConnLB) KeepAlive() bool {
-	return false
-	//	if len(bc.input) != 0 {
-	//		return false
-	//	}
-	//	r := &Request{
-	//		Resp: redis.NewArray([]*redis.Resp{
-	//			redis.NewBulkBytes([]byte("PING")),
-	//		}),
-	//	}
-
-	//	select {
-	//	case bc.input <- r:
-	//		return true
-	//	default:
-	//		return false
-	//	}
 }
 
 //
@@ -218,10 +203,7 @@ func (bc *BackendConnLB) loopWriter() error {
 			log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
 
 			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-			bc.State = ConnStateFailed
-			if bc.delegate != nil {
-				bc.delegate.StateChanged(bc)
-			}
+			bc.MarkConnActiveFalse()
 			return bc.setResponse(r, nil, err)
 		}
 
@@ -273,10 +255,7 @@ func (bc *BackendConnLB) loopReader(c *TBufferedFramedTransport) {
 // 处理所有的等待中的请求
 func (bc *BackendConnLB) flushRequests(err error) {
 	// 告诉BackendService, 不再接受新的请求
-	if bc.delegate != nil {
-		bc.State = ConnStateFailed
-		bc.delegate.StateChanged(bc)
-	}
+	bc.MarkConnActiveFalse()
 
 	bc.Lock()
 	seqRequest := bc.seqNum2Request
@@ -294,14 +273,6 @@ func (bc *BackendConnLB) flushRequests(err error) {
 	// 关闭输入
 	close(bc.input)
 
-}
-
-func (bc *BackendConnLB) canForward(r *Request) bool {
-	if r.Failed != nil && r.Failed.Get() {
-		return false
-	} else {
-		return true
-	}
 }
 
 // 配对 Request, resp, err
@@ -356,51 +327,6 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 	if r.Wait != nil {
 		r.Wait.Done()
 	}
-	//	if r.slot != nil {
-	//		r.slot.Done()
-	//	}
+
 	return err
 }
-
-////
-//// 通过引用计数管理后端的BackendConn
-////
-//type SharedBackendConnLB struct {
-//	*BackendConnLB
-//	mu sync.Mutex
-
-//	refcnt int
-//}
-
-//func NewSharedBackendConnLB(addr string, delegate BackendConnStateChanged) *SharedBackendConn {
-//	return &SharedBackendConnLB{BackendConn: NewBackendConn(addr, delegate), refcnt: 1}
-//}
-
-//func (s *SharedBackendConn) Close() bool {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	if s.refcnt <= 0 {
-//		log.Panicf("shared backend conn has been closed, close too many times")
-//	}
-//	if s.refcnt == 1 {
-//		s.BackendConn.Close()
-//	}
-//	s.refcnt--
-//	return s.refcnt == 0
-//}
-
-//// Close之后不能再引用
-//// socket不能多次打开，必须重建
-////
-//func (s *SharedBackendConn) IncrRefcnt() {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	if s.refcnt == 0 {
-//		log.Panicf("shared backend conn has been closed")
-//	}
-//	s.refcnt++
-//}
-
-//func FormatYYYYmmDDHHMMSS(date time.Time) string {
-//	return date.Format("@2006-01-02 15:04:05")
-//}
