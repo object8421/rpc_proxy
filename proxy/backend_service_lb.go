@@ -109,8 +109,11 @@ func (s *BackServiceLB) run() {
 
 				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
 				s.Lock()
+				// 添加一个Conn到activeConn中
+				conn.Index = len(s.activeConns)
 				s.activeConns = append(s.activeConns, conn)
 				s.Unlock()
+				log.Printf(Green("Current Active Conns: %d\n"), conn.Index)
 			} else {
 				panic("Unexpected Socket Type")
 			}
@@ -168,6 +171,8 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 			panic("Unexpected BackendConnLB State")
 		}
 	} else {
+		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d, Count: %d\n"), conn.Addr4Log(), conn.Index, len(s.activeConns))
+
 		// 从数组中删除一个元素(O(1)的操作)
 		if conn.Index != -1 {
 			// 1. 和最后一个元素进行交换

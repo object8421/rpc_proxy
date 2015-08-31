@@ -2,6 +2,7 @@ package proxy
 
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"time"
 )
 
 //
@@ -29,6 +30,7 @@ func NewPingRequest(seqId int32) *Request {
 	protocol.Flush()
 
 	r := &Request{}
+	r.Start = time.Now().Unix()
 	r.Request.Data = transport.Bytes()
 	r.Request.Name = "ping"
 	r.Request.SeqId = seqId

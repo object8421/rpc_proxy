@@ -160,6 +160,7 @@ func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request,
 	//	log.Printf("HandleRequest: %s\n", string(request))
 	r := NewRequest(request)
 
+	// 处理心跳
 	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
 		HandlePingRequest(r)
 		return r, nil

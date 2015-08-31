@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -29,8 +30,7 @@ type BackendConn struct {
 	addr string
 	stop sync.Once
 
-	input    chan *Request // 输入的请求, 有: 1024个Buffer
-	readChan chan bool
+	input chan *Request // 输入的请求, 有: 1024个Buffer
 
 	// seqNum2Request 读写基本上差不多
 	sync.Mutex
@@ -39,13 +39,14 @@ type BackendConn struct {
 	State          ConnState
 	Index          int
 	delegate       BackendConnStateChanged
+	ticker         *time.Ticker
+	lastHbTime     int64
 }
 
 func NewBackendConn(addr string, delegate BackendConnStateChanged) *BackendConn {
 	bc := &BackendConn{
 		addr:           addr,
 		input:          make(chan *Request, 1024),
-		readChan:       make(chan bool, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		currentSeqId:   1,
 		State:          ConnStateInit,
@@ -53,7 +54,30 @@ func NewBackendConn(addr string, delegate BackendConnStateChanged) *BackendConn 
 		delegate:       delegate,
 	}
 	go bc.Run()
+	go bc.Heartbeat()
 	return bc
+}
+
+func (bc *BackendConn) Heartbeat() {
+	bc.ticker = time.NewTicker(time.Second)
+	bc.lastHbTime = time.Now().Unix()
+	for true {
+		select {
+		case <-bc.ticker.C:
+			if time.Now().Unix()-bc.lastHbTime > 4 {
+				// 标志状态出现问题
+				if bc.State == ConnStateActive && bc.delegate != nil {
+					bc.State = ConnStateFailed
+					bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+				} else {
+					bc.State = ConnStateFailed
+				}
+			}
+			// 定时添加Ping的任务
+			r := NewPingRequest(0)
+			bc.PushBack(r)
+		}
+	}
 }
 
 //
@@ -73,6 +97,7 @@ func (bc *BackendConn) Run() {
 		}
 
 		if err == nil {
+			log.Println(Red("BackendConn#loopWriter normal Exit..."))
 			break
 		} else {
 
@@ -150,38 +175,36 @@ func (bc *BackendConn) loopWriter() error {
 			// 如果暂时没有数据输入，则p策略可能就有问题了
 			// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
 			//
+			if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+				// 过期的HB信号，直接放弃
+				if time.Now().Unix()-r.Start > 4 {
+					r, ok = <-bc.input
+					continue
+				} else {
+					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr())
+				}
+			}
+
 			var flush = len(bc.input) == 0
 			fmt.Printf("Force flush %t\n", flush)
 
-			if bc.canForward(r) {
+			// 1. 替换新的SeqId
+			r.ReplaceSeqId(bc.currentSeqId)
 
-				// 1. 替换新的SeqId
-				r.ReplaceSeqId(bc.currentSeqId)
+			// 2. 主动控制Buffer的flush
+			c.Write(r.Request.Data)
+			err := c.FlushBuffer(flush)
 
-				// 2. 主动控制Buffer的flush
-				c.Write(r.Request.Data)
-				err := c.FlushBuffer(flush)
+			if err == nil {
+				log.Printf("Succeed Write Request to backend Server/LB\n")
+				bc.IncreaseCurrentSeqId()
+				bc.Lock()
+				bc.seqNum2Request[r.Response.SeqId] = r
+				bc.Unlock()
 
-				if err == nil {
-					log.Printf("Succeed Write Request to backend Server/LB\n")
-					bc.IncreaseCurrentSeqId()
-					bc.Lock()
-					if len(bc.seqNum2Request) != 0 {
-						log.Printf(Red("Invalid SeqNum2Request Size: %d\n"), len(bc.seqNum2Request))
-						for k, v := range bc.seqNum2Request {
-							log.Printf(Red("K: %d, V: %p-%v\n"), k, v, v)
-						}
-
-					}
-					bc.seqNum2Request[r.Response.SeqId] = r
-					bc.Unlock()
-
-					bc.readChan <- true
-
-					// 读取
-					r, ok = <-bc.input
-					continue
-				}
+				// 读取
+				r, ok = <-bc.input
+				continue
 			}
 
 			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
@@ -190,16 +213,13 @@ func (bc *BackendConn) loopWriter() error {
 				bc.delegate.StateChanged(bc)
 			}
 
-			if err := c.FlushTransport(flush); err != nil {
-				return bc.setResponse(r, nil, err)
-			}
+			return bc.setResponse(r, nil, err)
 
-			// 请求压根就没有发送
-			bc.setResponse(r, nil, ErrFailedRequest)
+			//			// 请求压根就没有发送
+			//			bc.setResponse(r, nil, ErrFailedRequest)
 
-			// 继续读取请求, 如果有异常，如何处理呢?
-			r, ok = <-bc.input
-			break
+			//			// 继续读取请求, 如果有异常，如何处理呢?
+			//			r, ok = <-bc.input
 		}
 	}
 	return nil
@@ -238,7 +258,6 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 	}
 
 	c := NewTBufferedFramedTransport(socket, 100*time.Microsecond, 20)
-	//	c.Open()
 
 	go func() {
 		defer c.Close()
@@ -250,14 +269,16 @@ func (bc *BackendConn) newBackendReader() (*TBufferedFramedTransport, error) {
 
 			// io.EOF在两种情况下会出现
 			//
-			<-bc.readChan
 			resp, err := c.ReadFrame()
 
 			if err != nil {
-				log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v\n"), err)
+				if err != io.EOF && err.Error() != "EOF" {
+					log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v\n"), err)
+				}
 				bc.flushRequests(err)
 				break
 			} else {
+
 				bc.setResponse(nil, resp, err)
 			}
 		}
@@ -280,7 +301,9 @@ func (bc *BackendConn) flushRequests(err error) {
 	for _, request := range seqRequest {
 		log.Printf(Red("Handle Failed Request: %s %s"), request.Service, request.Request.Name)
 		request.Response.Err = err
-		request.Wait.Done()
+		if request.Wait != nil {
+			request.Wait.Done()
+		}
 	}
 
 }
@@ -308,6 +331,12 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		// 解码错误，直接报错
 		if err != nil {
 			return err
+		}
+
+		// 如果是心跳，则OK
+		if typeId == MESSAGE_TYPE_HEART_BEAT {
+			bc.lastHbTime = time.Now().Unix()
+			return nil
 		}
 
 		// 找到对应的Request

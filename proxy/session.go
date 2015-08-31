@@ -9,6 +9,7 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"io"
 	"time"
 )
 
@@ -118,9 +119,11 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 		// 从client读取frames
 		request, err := s.ReadFrame()
 		if err != nil {
-			// 遇到EOF等错误，就直接结束loopReader
-			// 结束之前需要和后端的back_conn之间处理好关系?
-			log.ErrorErrorf(err, Red("ReadFrame Error: %v\n"), err)
+			if err != io.EOF && err.Error() != "EOF" {
+				// 遇到EOF等错误，就直接结束loopReader
+				// 结束之前需要和后端的back_conn之间处理好关系?
+				log.ErrorErrorf(err, Red("ReadFrame Error: %v\n"), err)
+			}
 			return err
 		}
 

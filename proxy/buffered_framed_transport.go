@@ -68,9 +68,9 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 	var frameSize int
 	frameSize, err = p.readFrameHeader()
 	if err != nil {
-		if err != io.EOF {
+		if err != io.EOF && err.Error() != "EOF" {
 			// 在Close一个连接之后可能得到EOF错误
-			log.ErrorErrorf(err, "What Error: %v\n", err)
+			log.ErrorErrorf(err, "What Error: %v %v %t\n", err, io.EOF, err == io.EOF)
 		}
 		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Header Read Error"))
 		return

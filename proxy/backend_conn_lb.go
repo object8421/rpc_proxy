@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -29,6 +30,9 @@ type BackendConnLB struct {
 	delegate       BackendConnLBStateChanged
 	verbose        bool
 	State          ConnState
+
+	ticker     *time.Ticker
+	lastHbTime int64
 }
 
 //
@@ -58,7 +62,30 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		verbose:        verbose,
 	}
 	go bc.Run()
+	go bc.Heartbeat()
 	return bc
+}
+
+func (bc *BackendConnLB) Heartbeat() {
+	bc.ticker = time.NewTicker(time.Second)
+	bc.lastHbTime = time.Now().Unix()
+	for true {
+		select {
+		case <-bc.ticker.C:
+			if time.Now().Unix()-bc.lastHbTime > 4 {
+				// 标志状态出现问题
+				if bc.State == ConnStateActive && bc.delegate != nil {
+					bc.State = ConnStateFailed
+					bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
+				} else {
+					bc.State = ConnStateFailed
+				}
+			}
+			// 定时添加Ping的任务
+			r := NewPingRequest(0)
+			bc.PushBack(r)
+		}
+	}
 }
 
 // run之间 transport刚刚建立，因此服务的可靠性比较高
@@ -73,7 +100,7 @@ func (bc *BackendConnLB) Run() {
 	bc.State = ConnStateFailed
 	bc.delegate.StateChanged(bc)
 
-	log.Infof(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.addr4Log)
+	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.addr4Log)
 
 	if err != nil {
 		// 如果出现err, 则将bc.input中现有的数据都flush回去（直接报错)
@@ -156,6 +183,15 @@ func (bc *BackendConnLB) loopWriter() error {
 			// 如果暂时没有数据输入，则p策略可能就有问题了
 			// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
 			//
+			if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+				// 过期的HB信号，直接放弃
+				if time.Now().Unix()-r.Start > 4 {
+					r, ok = <-bc.input
+					continue
+				} else {
+					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr4Log())
+				}
+			}
 			var flush = len(bc.input) == 0
 			fmt.Printf("Force flush %t\n", flush)
 
@@ -222,7 +258,9 @@ func (bc *BackendConnLB) loopReader(c *TBufferedFramedTransport) {
 			frame, err := c.ReadFrame()
 
 			if err != nil {
-				log.ErrorErrorf(err, Red("ReadFrame From rpc_server with Error: %v\n"), err)
+				if err != io.EOF && err.Error() != "EOF" {
+					log.ErrorErrorf(err, Red("ReadFrame From rpc_server with Error: %v\n"), err)
+				}
 				bc.flushRequests(err)
 				break
 			} else {
@@ -251,6 +289,9 @@ func (bc *BackendConnLB) flushRequests(err error) {
 		request.Wait.Done()
 	}
 
+	// 关闭输入
+	close(bc.input)
+
 }
 
 func (bc *BackendConnLB) canForward(r *Request) bool {
@@ -275,6 +316,12 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		// 解码错误，直接报错
 		if err != nil {
 			return err
+		}
+
+		// 如果是心跳，则OK
+		if typeId == MESSAGE_TYPE_HEART_BEAT {
+			bc.lastHbTime = time.Now().Unix()
+			return nil
 		}
 
 		// 找到对应的Request
