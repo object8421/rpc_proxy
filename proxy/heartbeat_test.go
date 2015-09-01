@@ -15,7 +15,7 @@ import (
 //
 func TestHeatbeat(t *testing.T) {
 
-	request := NewPingRequest(10)
+	request := NewPingRequest()
 
 	fmt.Printf("Data Len: %d, Data:[%s]", len(request.Request.Data), request.Request.Data)
 

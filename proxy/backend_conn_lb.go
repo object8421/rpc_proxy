@@ -80,7 +80,7 @@ func (bc *BackendConnLB) Heartbeat() {
 				} else {
 					if bc.IsConnActive {
 						// 定时添加Ping的任务
-						r := NewPingRequest(0)
+						r := NewPingRequest()
 						bc.PushBack(r)
 					}
 				}

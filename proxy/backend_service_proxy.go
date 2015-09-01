@@ -88,7 +88,6 @@ func (s *BackService) WatchBackServiceNodes() {
 						s.addr2Conn[addr] = NewBackendConn(addr, s, s.verbose)
 					}
 				}
-
 				for addr, conn := range s.addr2Conn {
 					_, ok := addressMap[addr]
 					if !ok {

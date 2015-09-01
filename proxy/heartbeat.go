@@ -23,20 +23,21 @@ func HandlePingRequest(req *Request) {
 	//	return bytes
 }
 
-func NewPingRequest(seqId int32) *Request {
+func NewPingRequest() *Request {
 	// 构建thrift的Transport
 	transport := thrift.NewTMemoryBufferLen(1024)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
-	protocol.WriteMessageBegin("ping", MESSAGE_TYPE_HEART_BEAT, seqId)
+	protocol.WriteMessageBegin("ping", MESSAGE_TYPE_HEART_BEAT, 0)
 	protocol.WriteMessageEnd()
 	protocol.Flush()
 
 	r := &Request{}
+	// 告诉Request, Data中不包含service，在ReplaceSeqId时不需要特别处理
 	r.ServiceInRequest = false
 	r.Start = time.Now().Unix()
 	r.Request.Data = transport.Bytes()
 	r.Request.Name = "ping"
-	r.Request.SeqId = seqId
+	r.Request.SeqId = 0 // SeqId在这里无效，因此设置为0
 	r.Request.TypeId = MESSAGE_TYPE_HEART_BEAT
 	return r
 }

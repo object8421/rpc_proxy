@@ -45,8 +45,8 @@ func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendCo
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		hbTimeout:      make(chan bool),
-		currentSeqId:   1,
-		Index:          -1,
+		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
+		Index:          INVALID_ARRAY_INDEX,
 		delegate:       delegate,
 		IsConnActive:   false,
 		IsMarkOffline:  false,
@@ -67,7 +67,7 @@ func (bc *BackendConn) Heartbeat() {
 				} else {
 					if bc.IsConnActive {
 						// 定时添加Ping的任务
-						r := NewPingRequest(0)
+						r := NewPingRequest()
 						bc.PushBack(r)
 					}
 				}
