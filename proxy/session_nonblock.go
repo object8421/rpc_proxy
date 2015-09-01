@@ -45,11 +45,13 @@ func (s *NonBlockSession) String() string {
 	return string(b)
 }
 
-func NewNonBlockSession(c thrift.TTransport, address string, verbose bool, lastRequestTime *atomic2.Int64) *NonBlockSession {
+func NewNonBlockSession(c thrift.TTransport, address string, verbose bool,
+	lastRequestTime *atomic2.Int64) *NonBlockSession {
 	return NewNonBlockSessionSize(c, address, verbose, lastRequestTime, 1024*32, 1800)
 }
 
-func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool, lastRequestTime *atomic2.Int64, bufsize int, timeout int) *NonBlockSession {
+func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool,
+	lastRequestTime *atomic2.Int64, bufsize int, timeout int) *NonBlockSession {
 	s := &NonBlockSession{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
@@ -182,10 +184,4 @@ func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request,
 
 	// 交给Dispatch
 	return r, d.Dispatch(r)
-}
-
-func (s *NonBlockSession) handleQuit(r *Request) (*Request, error) {
-	s.quit = true
-	//	r.Response.Resp = redis.NewString([]byte("OK"))
-	return r, nil
 }

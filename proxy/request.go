@@ -25,10 +25,11 @@ type Request struct {
 
 	// 原始的数据(虽然拷贝有点点效率低，但是和zeromq相比也差不多)
 	Request struct {
-		Name   string
-		TypeId thrift.TMessageType
-		SeqId  int32
-		Data   []byte
+		Name     string
+		TypeId   thrift.TMessageType
+		SeqId    int32
+		Data     []byte
+		DataOrig []byte
 	}
 
 	OpStr string
@@ -103,19 +104,32 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
 		protocol.WriteMessageBegin(r.Request.Name, r.Request.TypeId, newSeq)
 
+		if start > 0 {
+			r.Request.DataOrig = r.Request.Data
+		}
 		// 将service从name中剥离出去
 		r.Request.Data = r.Request.Data[start:len(r.Request.Data)]
 
-		//		log.Printf(Green("Request Data Frame: %d\n"), len(r.Request.Data))
 	}
+}
 
+func (r *Request) Recycle() {
+	if r.Request.DataOrig != nil {
+		returnSlice(r.Request.DataOrig)
+		r.Request.DataOrig = nil
+		r.Request.Data = nil
+	} else if r.Request.Data != nil {
+		returnSlice(r.Request.Data)
+		r.Request.Data = nil
+	}
+	if r.Response.Data != nil {
+		returnSlice(r.Response.Data)
+		r.Response.Data = nil
+	}
 }
 
 func (r *Request) RestoreSeqId() {
 	if r.Response.Data != nil {
-
-		//		log.Printf("RestoreSeqId SeqNum: %d --> %d\n", r.Response.SeqId, r.Request.SeqId)
-
 		transport := NewTMemoryBufferWithBuf(r.Response.Data[0:0])
 		protocol := thrift.NewTBinaryProtocolTransport(transport)
 

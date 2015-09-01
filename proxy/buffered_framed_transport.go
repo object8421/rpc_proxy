@@ -49,6 +49,7 @@ func NewTBufferedFramedTransport(transport thrift.TTransport,
 	}
 }
 
+// Transport上的Buffer是低频需求，不需要优化
 func NewTBufferedFramedTransportMaxLength(transport thrift.TTransport,
 	maxInterval time.Duration, maxBuffered int,
 	maxLength int) *TBufferedFramedTransport {
@@ -87,8 +88,8 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 		return
 	}
 
-	// TODO: 优化
-	bytes := make([]byte, frameSize, frameSize)
+	bytes := getSlice(frameSize, frameSize)
+
 	//	var l int
 	_, err = p.Reader.Read(bytes)
 

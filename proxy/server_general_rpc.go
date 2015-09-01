@@ -116,16 +116,24 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 	return endpoint
 }
 
-// 后端如何处理一个Request?
+//
+// 后端如何处理一个Request
+//
 func (p *ThriftRpcServer) Dispatch(r *Request) error {
 	transport := NewTMemoryBufferWithBuf(r.Request.Data)
 	ip := thrift.NewTBinaryProtocolTransport(transport)
 
-	transport = NewTMemoryBufferLen(1024)
+	slice := getSlice(0, 1024)
+	transport = NewTMemoryBufferWithBuf(slice)
 	op := thrift.NewTBinaryProtocolTransport(transport)
 	p.Processor.Process(ip, op)
 
 	r.Response.Data = transport.Bytes()
+
+	// 如果transport重新分配了内存，则立即归还slice
+	if cap(r.Response.Data) != 1024 {
+		returnSlice(slice)
+	}
 	return nil
 }
 

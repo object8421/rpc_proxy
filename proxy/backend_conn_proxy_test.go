@@ -54,7 +54,6 @@ func TestBackend(t *testing.T) {
 		// 客户端代码
 		bc := NewBackendConn(addr, nil, true)
 		bc.currentSeqId = 10
-		defer bc.Close()
 
 		// 准备发送数据
 		var i int32

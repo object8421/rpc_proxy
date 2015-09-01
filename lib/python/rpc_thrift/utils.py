@@ -33,5 +33,14 @@ def get_base_protocol_4_pool(endpoint, timeout=2000):
 
 
 def get_service_protocol(service, base_protocol=None):
+    """
+    多个不同的service可以共用一个base_protocol; 如果指定了service, 则在base_protocol的基础上添加一个新的wrap
+    :param service:
+    :param base_protocol:
+    :return:
+    """
     base_protocol = base_protocol or _base_protocol
-    return TMultiplexedProtocol(base_protocol, service)
+    if service:
+        return TMultiplexedProtocol(base_protocol, service)
+    else:
+        return base_protocol

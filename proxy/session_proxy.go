@@ -97,7 +97,8 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 
 			// 扔掉所有的Tasks
 			log.Warnf(Red("Session Closed, Abandon %d Tasks"), len(tasks))
-			for _ = range tasks {
+			for task := range tasks {
+				task.Recycle()
 			}
 		}()
 		if err := s.loopWriter(tasks); err != nil {
@@ -177,6 +178,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 			log.ErrorErrorf(err, "Write back Data Error: %v", err)
 			return err
 		}
+		r.Recycle()
 	}
 	return nil
 }
