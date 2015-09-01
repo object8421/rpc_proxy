@@ -228,7 +228,6 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 		if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
 			// 过期的HB信号，直接放弃
 			if time.Now().Unix()-r.Start > 4 {
-				r, ok = <-bc.input
 				continue
 			}
 		}
