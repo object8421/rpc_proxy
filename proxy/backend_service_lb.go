@@ -5,15 +5,11 @@ package proxy
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
-	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
-
-type SocketAddr interface {
-	Addr() net.Addr
-}
 
 //
 // Proxy中用来和后端服务通信的模块
@@ -96,8 +92,13 @@ func (s *BackServiceLB) run() {
 	var err error
 
 	// 3. 读取后端服务的配置
+	isUnixDomain := false
 	if strings.HasSuffix(s.backendAddr, ".sock") {
+		if FileExist(s.backendAddr) {
+			os.Remove(s.backendAddr)
+		}
 		transport, err = NewTServerUnixDomain(s.backendAddr)
+		isUnixDomain = true
 	} else {
 		transport, err = thrift.NewTServerSocket(s.backendAddr)
 	}
@@ -128,11 +129,16 @@ func (s *BackServiceLB) run() {
 	}()
 
 	go func() {
+		var backendAddr string
 		for c := range s.ch {
 			// 为每个Connection建立一个Session
 			socket, ok := c.(SocketAddr)
 			if ok {
-				backendAddr := socket.Addr().String()
+				if isUnixDomain {
+					backendAddr = s.backendAddr
+				} else {
+					backendAddr = socket.Addr().String()
+				}
 
 				conn := NewBackendConnLB(c, s.serviceName, backendAddr, s, s.verbose)
 

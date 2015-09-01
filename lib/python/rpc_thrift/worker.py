@@ -79,8 +79,10 @@ class RpcWorker(object):
             self.connection_to_lb()
 
     def connection_to_lb(self):
-
-        print "Prepare open a socket to lb: %s:%d" % (self.host, self.port)
+        if self.unix_socket:
+            print "Prepare open a socket to lb: %s" % (self.unix_socket, )
+        else:
+            print "Prepare open a socket to lb: %s:%s" % (self.host, self.port)
 
         # 1. 创建一个到lb的连接，然后开始读取Frame, 并且返回数据
         socket = TSocket(host=self.host, port=self.port, unix_socket=self.unix_socket)

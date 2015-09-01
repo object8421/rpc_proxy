@@ -10,6 +10,17 @@ import (
 	"git.apache.org/thrift.git/lib/go/thrift"
 )
 
+// 判断给定的文件是否存在
+func FileExist(file string) bool {
+	var err error
+	_, err = os.Stat(file)
+	return !os.IsNotExist(err)
+}
+
+type SocketAddr interface {
+	Addr() net.Addr
+}
+
 type TServerUnixDomain struct {
 	listener      net.Listener
 	addr          net.Addr

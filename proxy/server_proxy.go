@@ -8,6 +8,7 @@ import (
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
+	"os"
 	"strings"
 	"time"
 )
@@ -43,8 +44,21 @@ func NewProxyServer(config *utils.Config) *ProxyServer {
 // 两参数是必须的:  ProductName, zkAddress, frontAddr可以用来测试
 //
 func (p *ProxyServer) Run() {
+
+	var transport thrift.TServerTransport
+	var err error
+
 	// 读取后端服务的配置
-	transport, err := thrift.NewTServerSocket(p.proxyAddr)
+	isUnixDomain := false
+	if strings.HasSuffix(p.proxyAddr, ".sock") {
+		if FileExist(p.proxyAddr) {
+			os.Remove(p.proxyAddr)
+		}
+		transport, err = NewTServerUnixDomain(p.proxyAddr)
+		isUnixDomain = true
+	} else {
+		transport, err = thrift.NewTServerSocket(p.proxyAddr)
+	}
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s", err, p.proxyAddr)
 	}
@@ -60,9 +74,10 @@ func (p *ProxyServer) Run() {
 		var address string
 		for c := range ch {
 			// 为每个Connection建立一个Session
-			socket, ok := c.(*thrift.TSocket)
-
-			if ok {
+			socket, ok := c.(SocketAddr)
+			if isUnixDomain {
+				address = p.proxyAddr
+			} else if ok {
 				address = socket.Addr().String()
 			} else {
 				address = "unknow"
