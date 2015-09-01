@@ -16,7 +16,10 @@ type BackServiceLB struct {
 	serviceName string
 	backendAddr string
 
-	sync.RWMutex
+	// Mutex的使用：
+	// 	避免使用匿名的Mutex, 需要指定一个语义明确的变量，限定它的使用范围(另可多定义几个Mutex, 不能滥用)
+	//
+	activeConnsLock  sync.RWMutex
 	activeConns      []*BackendConnLB // 每一个BackendConn应该有一定的高可用保障
 	currentConnIndex int
 
@@ -76,6 +79,7 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 
 func (s *BackServiceLB) run() {
 	go func() {
+		// 定时汇报当前的状态
 		for true {
 			log.Printf(Green("[Report]: %s Current Active Conns: %d"), s.serviceName, s.Active())
 			time.Sleep(time.Second * 10)
@@ -119,11 +123,11 @@ func (s *BackServiceLB) run() {
 				conn := NewBackendConnLB(socket, s.serviceName, backendAddr, s, s.verbose)
 
 				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
-				s.Lock()
-				// 添加一个Conn到activeConn中
+				s.activeConnsLock.Lock()
 				conn.Index = len(s.activeConns)
 				s.activeConns = append(s.activeConns, conn)
-				s.Unlock()
+				s.activeConnsLock.Unlock()
+
 				log.Printf(Green("Current Active Conns: %d"), conn.Index)
 			} else {
 				panic("Unexpected Socket Type")
@@ -150,10 +154,12 @@ func (s *BackServiceLB) Active() int {
 
 // 获取下一个active状态的BackendConn
 func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
+	s.activeConnsLock.RLock()
+	defer s.activeConnsLock.RUnlock()
 
 	// TODO: 暂时采用RoundRobin的方法，可以采用其他具有优先级排列的方法
 	var backSocket *BackendConnLB
-	s.RLock()
+
 	if len(s.activeConns) == 0 {
 		if s.verbose {
 			log.Printf(Cyan("ActiveConns Len 0"))
@@ -169,7 +175,6 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d"), len(s.activeConns), s.currentConnIndex)
 		}
 	}
-	s.RUnlock()
 	return backSocket
 }
 
@@ -177,16 +182,18 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 	log.Printf(Green("StateChanged: %s, Index: %d, Count: %d"), conn.addr4Log, conn.Index, len(s.activeConns))
 
-	s.Lock()
-	defer s.Unlock()
+	s.activeConnsLock.Lock()
+	defer s.activeConnsLock.Unlock()
 
 	if conn.IsConnActive {
+		// BackServiceLB 只有一个状态转移: Active --> Not Active
 		log.Printf(Magenta("Unexpected BackendConnLB State"))
 		if s.verbose {
 			panic("Unexpected BackendConnLB State")
 		}
 	} else {
-		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d, Count: %d"), conn.Addr4Log(), conn.Index, len(s.activeConns))
+		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d, Count: %d"),
+			conn.Addr4Log(), conn.Index, len(s.activeConns))
 
 		// 从数组中删除一个元素(O(1)的操作)
 		if conn.Index != INVALID_ARRAY_INDEX {
