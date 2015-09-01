@@ -23,7 +23,7 @@ setup(
     description='rpc_proxy is a flexible RPC based on thrift.',
     author="wangfei@chunyu.me",
     url='https://git.chunyu.me/infra/rpc_proxy/tree/master/lib',
-    packages=['rpc_thrift',],
+    packages=['rpc_thrift', 'rpc_thrift.services'],
     # install_requires=requirements,
     zip_safe=False,
     license='MIT',
