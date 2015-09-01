@@ -3,3 +3,4 @@
 /lib/python/rpc_proxy.egg-info/
 /lib/.idea
 *.pyc
+/gen-py
