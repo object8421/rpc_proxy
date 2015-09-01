@@ -9,11 +9,12 @@ from rpc_thrift.transport import TAutoConnectSocket
 
 # Client目前只考虑单线程的情况, 如果是多线程，或者coroutine可能需要使用pool
 _base_protocol = None
-def get_base_protocol(endpoint):
+def get_base_protocol(endpoint, timeout=2000):
     global _base_protocol
     if not _base_protocol:
         hostport = endpoint.split(":")
         socket = TSocket(hostport[0], int(hostport[1]))
+        socket.setTimeout(timeout)
         socket = TAutoConnectSocket(socket)
 
         transport = TFramedTransport(socket)
@@ -21,9 +22,10 @@ def get_base_protocol(endpoint):
     return _base_protocol
 
 
-def get_base_protocol_4_pool(endpoint):
+def get_base_protocol_4_pool(endpoint, timeout=2000):
     hostport = endpoint.split(":")
     socket = TSocket(hostport[0], int(hostport[1]))
+    socket.setTimeout(timeout)
     socket = TAutoConnectSocket(socket)
 
     transport = TFramedTransport(socket)
