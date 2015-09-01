@@ -6,27 +6,30 @@ import (
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
+	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 //
 // Thrift Server的参数
 //
 type ThriftLoadBalanceServer struct {
-	productName    string
-	serviceName    string
-	frontendAddr   string // 绑定的端口
-	backendAddr    string
-	lbServiceName  string
-	topo           *zk.Topology // ZK相关
-	zkAddr         string
-	verbose        bool
-	backendService *BackServiceLB
-	exitEvt        chan bool
+	productName     string
+	serviceName     string
+	frontendAddr    string // 绑定的端口
+	backendAddr     string
+	lbServiceName   string
+	topo            *zk.Topology // ZK相关
+	zkAddr          string
+	verbose         bool
+	backendService  *BackServiceLB
+	exitEvt         chan bool
+	lastRequestTime atomic2.Int64
 }
 
 func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
@@ -97,6 +100,21 @@ func (p *ThriftLoadBalanceServer) Run() {
 		<-ch1
 		log.Info(Green("Receive Exit Signals...."))
 		serviceEndpoint.DeleteServiceEndpoint(p.topo)
+
+		start := time.Now().Unix()
+		for true {
+			// 如果5s内没有接受到新的请求了，则退出
+			now := time.Now().Unix()
+			if now-p.lastRequestTime.Get() > 5 {
+				log.Printf(Red("[%s]Graceful Exit..."), p.serviceName)
+				break
+			} else {
+				log.Printf(Cyan("[%s]Sleeping %d seconds before Exit...\n"),
+					p.serviceName, now-start)
+				time.Sleep(time.Second)
+			}
+		}
+
 		transport.Interrupt()
 		transport.Close()
 	}()
@@ -112,7 +130,7 @@ func (p *ThriftLoadBalanceServer) Run() {
 			} else {
 				address = "unknow"
 			}
-			x := NewNonBlockSession(c, address, p.verbose)
+			x := NewNonBlockSession(c, address, p.verbose, &p.lastRequestTime)
 			// Session独立处理自己的请求
 			go x.Serve(p.backendService, 1000)
 		}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 )
@@ -33,8 +34,7 @@ type BackendConn struct {
 	IsConnActive  bool // 是否处于Active状态呢
 	verbose       bool
 
-	hbMutex    sync.RWMutex
-	hbLastTime int64
+	hbLastTime atomic2.Int64
 	hbTicker   *time.Ticker
 	hbTimeout  chan bool
 }
@@ -58,16 +58,12 @@ func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendCo
 
 func (bc *BackendConn) Heartbeat() {
 	go func() {
-		bc.hbLastTime = time.Now().Unix()
-		var hbLastTime int64
+		bc.hbLastTime.Set(time.Now().Unix())
 
 		for true {
 			select {
 			case <-bc.hbTicker.C:
-				bc.hbMutex.RLock()
-				hbLastTime = bc.hbLastTime
-				bc.hbMutex.RUnlock()
-				if time.Now().Unix()-hbLastTime > HB_TIMEOUT {
+				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
 				} else {
 					// 定时添加Ping的任务
@@ -341,9 +337,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
 			//			log.Printf(Magenta("Get Ping/Pang Back"))
-			bc.hbMutex.Lock()
-			bc.hbLastTime = time.Now().Unix()
-			bc.hbMutex.Unlock()
+			bc.hbLastTime.Set(time.Now().Unix())
 			return nil
 		}
 

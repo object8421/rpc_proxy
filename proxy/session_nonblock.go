@@ -26,6 +26,8 @@ type NonBlockSession struct {
 	failed  atomic2.Bool
 	closed  atomic2.Bool
 	verbose bool
+
+	lastRequestTime *atomic2.Int64
 }
 
 // 返回当前Session的状态
@@ -43,14 +45,15 @@ func (s *NonBlockSession) String() string {
 	return string(b)
 }
 
-func NewNonBlockSession(c thrift.TTransport, address string, verbose bool) *NonBlockSession {
-	return NewNonBlockSessionSize(c, address, verbose, 1024*32, 1800)
+func NewNonBlockSession(c thrift.TTransport, address string, verbose bool, lastRequestTime *atomic2.Int64) *NonBlockSession {
+	return NewNonBlockSessionSize(c, address, verbose, lastRequestTime, 1024*32, 1800)
 }
 
-func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool, bufsize int, timeout int) *NonBlockSession {
+func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool, lastRequestTime *atomic2.Int64, bufsize int, timeout int) *NonBlockSession {
 	s := &NonBlockSession{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
+		lastRequestTime:          lastRequestTime,
 		verbose:                  verbose,
 		TBufferedFramedTransport: NewTBufferedFramedTransport(c, time.Microsecond*100, 20),
 	}
@@ -74,11 +77,13 @@ func (s *NonBlockSession) IsClosed() bool {
 
 func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 	var errlist errors.ErrorList
+
 	defer func() {
+		// 只限制第一个Error
 		if err := errlist.First(); err != nil {
-			log.Infof("session [%p] closed: %s, error = %s", s, s, err)
+			log.Infof("Session [%p] closed, Error = %v", s, err)
 		} else {
-			log.Infof("session [%p] closed: %s, quit", s, s)
+			log.Infof("Session [%p] closed, Quit", s)
 		}
 	}()
 
@@ -98,9 +103,10 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 
 	defer close(tasks)
 
-	for !s.quit {
+	for true {
 		// Reader不停地解码， 将Request
 		request, err := s.ReadFrame()
+
 		if err != nil {
 			errlist.PushBack(err)
 			return
@@ -166,6 +172,10 @@ func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request,
 		return r, nil
 	}
 
+	// 正常请求
+	if s.lastRequestTime != nil {
+		s.lastRequestTime.Set(time.Now().Unix())
+	}
 	// 增加统计
 	s.LastOpUnix = time.Now().Unix()
 	s.Ops++

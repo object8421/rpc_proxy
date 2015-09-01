@@ -3,9 +3,11 @@
 package proxy
 
 import (
+	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	topozk "git.chunyu.me/infra/go-zookeeper/zk"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
+	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"os"
@@ -14,10 +16,6 @@ import (
 
 	"strings"
 	"time"
-)
-
-const (
-	SERVER_ENDPOINT = "frontend"
 )
 
 type Server interface {
@@ -29,13 +27,14 @@ type ServerFactorory func(config *utils.Config) Server
 // Thrift Server的参数
 //
 type ThriftRpcServer struct {
-	ZkAddr       string
-	ProductName  string
-	ServiceName  string
-	FrontendAddr string
-	Topo         *zk.Topology
-	Processor    thrift.TProcessor
-	Verbose      bool
+	ZkAddr          string
+	ProductName     string
+	ServiceName     string
+	FrontendAddr    string
+	Topo            *zk.Topology
+	Processor       thrift.TProcessor
+	Verbose         bool
+	lastRequestTime atomic2.Int64
 }
 
 func NewThriftRpcServer(config *utils.Config, processor thrift.TProcessor) *ThriftRpcServer {
@@ -54,7 +53,7 @@ func NewThriftRpcServer(config *utils.Config, processor thrift.TProcessor) *Thri
 
 //
 // 根据前端的地址生成服务的id
-// 例如: tcp://127.0.0.1:5555 --> tcp_127_0_0_1_5555
+// 例如: 127.0.0.1:5555 --> 127_0_0_1_5555
 //
 func GetServiceIdentity(frontendAddr string) string {
 	fid := strings.Replace(frontendAddr, ".", "_", -1)
@@ -66,12 +65,14 @@ func GetServiceIdentity(frontendAddr string) string {
 //
 // 去ZK注册当前的Service
 //
-func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topology, evtExit chan interface{}) *ServiceEndpoint {
+func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topology,
+	evtExit chan interface{}) *ServiceEndpoint {
+
 	// 1. 准备数据
 	// 记录Service Endpoint的信息
 	servicePath := topo.ProductServicePath(serviceName)
 
-	// 用来从zookeeper获取实践
+	// 用来从zookeeper获取事件
 	evtbus := make(chan interface{})
 
 	// 2. 将信息添加到Zk中, 并且监控Zk的状态(如果添加失败会怎么样?)
@@ -81,7 +82,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 	go func() {
 
 		for true {
-			// 只是为了监控状态
+			// Watch的目的是监控: 当前的zk session的状态, 如果session出现异常，则重新注册
 			_, err := topo.WatchNode(servicePath, evtbus)
 
 			if err == nil {
@@ -92,7 +93,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 				case e := <-evtbus:
 					event := e.(topozk.Event)
 					if event.State == topozk.StateExpired || event.Type == topozk.EventNotWatching {
-						// Session过期了，则需要删除之前的数据，因为这个数据的Owner不是当前的Session
+						// Session过期了，则需要删除之前的数据，因为当前的session不是之前的数据的Owner
 						endpoint.DeleteServiceEndpoint(topo)
 						endpoint.AddServiceEndpoint(topo)
 
@@ -135,13 +136,12 @@ func (p *ThriftRpcServer) Run() {
 	// 127.0.0.1:5555 --> 127_0_0_1:5555
 	lbServiceName := GetServiceIdentity(p.FrontendAddr)
 
-	ch1 := make(chan os.Signal, 1)
+	exitSignal := make(chan os.Signal, 1)
+	signal.Notify(exitSignal, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 
-	signal.Notify(ch1, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 	// syscall.SIGKILL
 	// kill -9 pid
 	// kill -s SIGKILL pid 还是留给运维吧
-	//
 
 	// 注册服务
 	evtExit := make(chan interface{})
@@ -154,10 +154,15 @@ func (p *ThriftRpcServer) Run() {
 	// 3. 读取后端服务的配置
 	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		log.ErrorErrorf(err, Red("Server Socket Create Failed: %v"), err)
+		panic(fmt.Sprintf("Invalid FrontendAddr: %s", p.FrontendAddr))
 	}
 
-	transport.Open()
+	err = transport.Open()
+	if err != nil {
+		log.ErrorErrorf(err, Red("Server Socket Open Failed: %v"), err)
+		panic(fmt.Sprintf("Server Socket Open Failed: %s", p.FrontendAddr))
+	}
 
 	// 开始监听
 	transport.Listen()
@@ -167,9 +172,23 @@ func (p *ThriftRpcServer) Run() {
 
 	// 强制退出? TODO: Graceful退出
 	go func() {
-		<-ch1
-		log.Info(Green("Receive Exit Signals...."))
+		<-exitSignal
+		log.Info(Magenta("Receive Exit Signals...."))
 		endpoint.DeleteServiceEndpoint(p.Topo)
+
+		// 等待
+		start := time.Now().Unix()
+		for true {
+			// 如果5s内没有接受到新的请求了，则退出
+			now := time.Now().Unix()
+			if now-p.lastRequestTime.Get() > 5 {
+				log.Info(Red("Graceful Exit..."))
+				break
+			} else {
+				log.Printf(Cyan("Sleeping %d seconds\n"), now-start)
+				time.Sleep(time.Second)
+			}
+		}
 		transport.Interrupt()
 		transport.Close()
 	}()
@@ -185,7 +204,7 @@ func (p *ThriftRpcServer) Run() {
 			} else {
 				address = "unknow"
 			}
-			x := NewNonBlockSession(c, address, p.Verbose)
+			x := NewNonBlockSession(c, address, p.Verbose, &p.lastRequestTime)
 			// Session独立处理自己的请求
 			go x.Serve(p, 1000)
 		}

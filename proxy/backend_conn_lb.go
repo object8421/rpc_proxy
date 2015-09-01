@@ -8,6 +8,7 @@ import (
 	"time"
 
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 )
@@ -31,8 +32,7 @@ type BackendConnLB struct {
 	verbose        bool
 	IsConnActive   bool // 是否处于Active状态呢
 
-	hbMutex    sync.RWMutex
-	hbLastTime int64
+	hbLastTime atomic2.Int64
 	hbTicker   *time.Ticker
 	hbTimeout  chan bool
 }
@@ -72,19 +72,12 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 //
 func (bc *BackendConnLB) Heartbeat() {
 	go func() {
-		bc.hbLastTime = time.Now().Unix()
-
-		var hbLastTime int64
+		bc.hbLastTime.Set(time.Now().Unix())
 
 		for true {
 			select {
 			case <-bc.hbTicker.C:
-
-				bc.hbMutex.RLock()
-				hbLastTime = bc.hbLastTime
-				bc.hbMutex.RUnlock()
-
-				if time.Now().Unix()-hbLastTime > HB_TIMEOUT {
+				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
 				} else {
 					if bc.IsConnActive {
@@ -314,9 +307,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
-			bc.hbMutex.Lock()
-			bc.hbLastTime = time.Now().Unix()
-			bc.hbMutex.Unlock()
+			bc.hbLastTime.Set(time.Now().Unix())
 			return nil
 		}
 
