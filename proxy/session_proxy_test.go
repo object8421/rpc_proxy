@@ -7,6 +7,7 @@ import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/stretchr/testify/assert"
+	"io"
 	"testing"
 	"time"
 )
@@ -33,6 +34,15 @@ func (p *fakeServer) Dispatch(r *Request) error {
 	//	r.RestoreSeqId()
 	//	r.Wait.Done()
 	return nil
+}
+
+//
+// go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestError"
+//
+func TestError(t *testing.T) {
+	err1 := io.EOF
+	err2 := io.EOF
+	fmt.Printf("Err1: %p, Err2: %p, Equal: %t\n", err1, err2, err1 == err2)
 }
 
 //

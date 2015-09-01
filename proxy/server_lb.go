@@ -76,13 +76,13 @@ func (p *ThriftLoadBalanceServer) Run() {
 	// 3. 读取后端服务的配置
 	transport, err := thrift.NewTServerSocket(p.frontendAddr)
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
 		panic(fmt.Sprintf("Invalid FrontendAddress: %s", p.frontendAddr))
 	}
 
 	err = transport.Open()
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
 		panic(fmt.Sprintf("Binding Error FrontendAddress: %s", p.frontendAddr))
 	}
 

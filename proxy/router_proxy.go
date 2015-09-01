@@ -19,14 +19,14 @@ type Router struct {
 	sync.RWMutex
 	services map[string]*BackService
 	topo     *zk.Topology
-	Verbose  bool
+	verbose  bool
 }
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	r := &Router{
 		services: make(map[string]*BackService),
 		topo:     topo,
-		Verbose:  verbose,
+		verbose:  verbose,
 	}
 
 	// 监控服务的变化
@@ -41,6 +41,7 @@ func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 func (s *Router) Dispatch(r *Request) error {
 	backService := s.GetBackService(r.Service)
 	if backService == nil {
+		log.Printf(Cyan("Service Not Found for: %s.%s\n"), r.Service, r.Request.Name)
 		r.Response.Data = GetServiceNotFoundData(r)
 		return nil
 	} else {
@@ -121,7 +122,7 @@ func (bk *Router) addBackService(service string) {
 
 	backService, ok := bk.services[service]
 	if !ok {
-		backService = NewBackService(service, bk.topo, bk.Verbose)
+		backService = NewBackService(service, bk.topo, bk.verbose)
 		bk.services[service] = backService
 	}
 

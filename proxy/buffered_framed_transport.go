@@ -36,7 +36,8 @@ type TBufferedFramedTransport struct {
 	lastflush   int64 // 单位: ns(1e-9s)
 }
 
-func NewTBufferedFramedTransport(transport thrift.TTransport, maxInterval time.Duration,
+func NewTBufferedFramedTransport(transport thrift.TTransport,
+	maxInterval time.Duration,
 	maxBuffered int) *TBufferedFramedTransport {
 
 	return &TBufferedFramedTransport{
@@ -49,7 +50,8 @@ func NewTBufferedFramedTransport(transport thrift.TTransport, maxInterval time.D
 }
 
 func NewTBufferedFramedTransportMaxLength(transport thrift.TTransport,
-	maxInterval time.Duration, maxBuffered int, maxLength int) *TBufferedFramedTransport {
+	maxInterval time.Duration, maxBuffered int,
+	maxLength int) *TBufferedFramedTransport {
 
 	return &TBufferedFramedTransport{
 		TBufferedTransport: thrift.NewTBufferedTransport(transport, 64*1024),
@@ -64,30 +66,43 @@ func NewTBufferedFramedTransportMaxLength(transport thrift.TTransport,
 func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 
 	if p.FrameSize != 0 {
-		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Unexpected frame size: %d", p.FrameSize))
+		err = thrift.NewTTransportExceptionFromError(
+			fmt.Errorf("Unexpected frame size: %d", p.FrameSize))
 		return nil, err
 	}
 	var frameSize int
+
+	// Reader来自transport, 中间被封装了多长
 	frameSize, err = p.readFrameHeader()
 	if err != nil {
-		if err != io.EOF && err.Error() != "EOF" {
-			// 在Close一个连接之后可能得到EOF错误
-			log.ErrorErrorf(err, "What Error: %v %v %t\n", err, io.EOF, err == io.EOF)
+		err1, ok := err.(thrift.TTransportException)
+
+		if ok {
+			err = thrift.NewTTransportException(err1.TypeId(),
+				fmt.Sprintf("Frame Header Read Error: %s", err1.Error()))
+		} else {
+			err = thrift.NewTTransportExceptionFromError(
+				fmt.Errorf("Frame Header Read Error: %s", err.Error()))
 		}
-		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Header Read Error"))
 		return
 	}
 
-	//	log.Printf("<==== ReadFrame frame size: %d\n", frameSize)
 	// TODO: 优化
 	bytes := make([]byte, frameSize, frameSize)
 	//	var l int
 	_, err = p.Reader.Read(bytes)
 
-	//	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d\n"), frameSize, l)
+	//	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d"), frameSize, l)
 
 	if err != nil {
-		err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Frame Data Read Error"))
+		err1, ok := err.(thrift.TTransportException)
+		if ok {
+			err = thrift.NewTTransportException(err1.TypeId(),
+				fmt.Sprintf("Frame Data Read Error: %s", err1.Error()))
+		} else {
+			err = thrift.NewTTransportExceptionFromError(
+				fmt.Errorf("Frame Data Read Error: %s", err.Error()))
+		}
 		return nil, err
 	}
 
@@ -112,7 +127,9 @@ func (p *TBufferedFramedTransport) Read(buf []byte) (l int, err error) {
 		l, err = p.Read(tmp)
 		copy(buf, tmp)
 		if err == nil {
-			err = thrift.NewTTransportExceptionFromError(fmt.Errorf("Not enough frame size %d to read %d bytes", frameSize, len(buf)))
+			err = thrift.NewTTransportExceptionFromError(
+				fmt.Errorf("Not enough frame size %d to read %d bytes",
+					frameSize, len(buf)))
 			return
 		}
 	}
@@ -122,7 +139,8 @@ func (p *TBufferedFramedTransport) Read(buf []byte) (l int, err error) {
 	p.FrameSize = p.FrameSize - got
 	//sanity check
 	if p.FrameSize < 0 {
-		return 0, thrift.NewTTransportException(thrift.UNKNOWN_TRANSPORT_EXCEPTION, "Negative frame size")
+		return 0, thrift.NewTTransportException(thrift.UNKNOWN_TRANSPORT_EXCEPTION,
+			"Negative frame size")
 	}
 	return got, thrift.NewTTransportExceptionFromError(err)
 }
@@ -135,7 +153,8 @@ func (p *TBufferedFramedTransport) ReadByte() (c byte, err error) {
 		}
 	}
 	if p.FrameSize < 1 {
-		return 0, thrift.NewTTransportExceptionFromError(fmt.Errorf("Not enough frame size %d to read %d bytes", p.FrameSize, 1))
+		return 0, thrift.NewTTransportExceptionFromError(
+			fmt.Errorf("Not enough frame size %d to read %d bytes", p.FrameSize, 1))
 	}
 	c, err = p.Reader.ReadByte()
 	if err == nil {
@@ -195,11 +214,10 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	if size > 0 {
 		var n int64
 		if n, err = p.Buffer.WriteTo(p.Writer); err != nil {
-			log.ErrorErrorf(err, "Error Flushing Expect Write: %d, but %d\n", size, n)
+			log.ErrorErrorf(err, "Error Flushing Expect Write: %d, but %d\n",
+				size, n)
 			return thrift.NewTTransportExceptionFromError(err)
 		}
-
-		//		log.Printf("----> Exp: %d, Act: %d\n", size, n)
 	}
 
 	p.nbuffered++
@@ -219,16 +237,20 @@ func (p *TBufferedFramedTransport) readFrameHeader() (int, error) {
 	}
 	size := int(binary.BigEndian.Uint32(buf))
 	if size < 0 || size > p.maxLength {
-		return 0, thrift.NewTTransportException(thrift.UNKNOWN_TRANSPORT_EXCEPTION, fmt.Sprintf("Incorrect frame size (%d)", size))
+		return 0, thrift.NewTTransportException(thrift.UNKNOWN_TRANSPORT_EXCEPTION,
+			fmt.Sprintf("Incorrect frame size (%d)", size))
 	}
 	return size, nil
 }
 
 func (p *TBufferedFramedTransport) needFlush() bool {
 	if p.nbuffered != 0 {
+		// request个数 buffer到一定数量
 		if p.nbuffered > p.MaxBuffered {
 			return true
 		}
+
+		// 或者间隔到达一定时间，则flush
 		if time.Now().UnixNano()-p.lastflush > p.MaxInterval {
 			return true
 		}

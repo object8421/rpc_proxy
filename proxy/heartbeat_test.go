@@ -17,7 +17,7 @@ func TestHeatbeat(t *testing.T) {
 
 	request := NewPingRequest(10)
 
-	fmt.Printf("Data Len: %d, Data:[%s]\n", len(request.Request.Data), request.Request.Data)
+	fmt.Printf("Data Len: %d, Data:[%s]", len(request.Request.Data), request.Request.Data)
 
 	for i := 0; i < len(request.Request.Data); i++ {
 		fmt.Printf("%d,", request.Request.Data[i])

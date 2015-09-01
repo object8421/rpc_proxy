@@ -46,7 +46,7 @@ func (p *ProxyServer) Run() {
 	// 读取后端服务的配置
 	transport, err := thrift.NewTServerSocket(p.proxyAddr)
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s\n", err, p.proxyAddr)
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v, Front: %s", err, p.proxyAddr)
 	}
 
 	// 开始监听
@@ -77,7 +77,7 @@ func (p *ProxyServer) Run() {
 	for {
 		c, err := transport.Accept()
 		if err != nil {
-			log.ErrorErrorf(err, "Accept Error: %v\n", err)
+			log.ErrorErrorf(err, "Accept Error: %v", err)
 			break
 		} else {
 			ch <- c

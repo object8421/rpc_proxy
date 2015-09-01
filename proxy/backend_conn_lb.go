@@ -4,7 +4,6 @@ package proxy
 
 import (
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
@@ -248,7 +247,9 @@ func (bc *BackendConnLB) loopReader(c *TBufferedFramedTransport) {
 			frame, err := c.ReadFrame()
 
 			if err != nil {
-				if err != io.EOF && err.Error() != "EOF" {
+
+				err1, ok := err.(thrift.TTransportException)
+				if !ok || err1.TypeId() != thrift.END_OF_FILE {
 					log.ErrorErrorf(err, Red("ReadFrame From rpc_server with Error: %v\n"), err)
 				}
 				bc.flushRequests(err)

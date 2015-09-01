@@ -87,7 +87,7 @@ func (r *Request) DecodeRequest() {
 //
 func (r *Request) ReplaceSeqId(newSeq int32) {
 	if r.Request.Data != nil {
-		//		log.Printf(Green("Replace SeqNum: %d --> %d\n"), r.Request.SeqId, newSeq)
+		//		log.Printf(Green("Replace SeqNum: %d --> %d"), r.Request.SeqId, newSeq)
 		r.Response.SeqId = newSeq
 
 		start := 0

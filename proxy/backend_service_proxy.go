@@ -63,14 +63,14 @@ func (s *BackService) WatchBackServiceNodes() {
 				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
 
 				for _, serviceId := range serviceIds {
-					log.Printf(Green("---->Find Endpoint: %s for Service: %s\n"), serviceId, s.serviceName)
+					log.Printf(Green("---->Find Endpoint: %s for Service: %s"), serviceId, s.serviceName)
 					endpointInfo, err := GetServiceEndpoint(s.topo, s.serviceName, serviceId)
 
 					if err != nil {
 						log.ErrorErrorf(err, "Service Endpoint Read Error: %v\n", err)
 					} else {
 
-						log.Printf(Green("---->Add endpoint %s To Service %s @ %s\n"),
+						log.Printf(Green("---->Add endpoint %s To Service %s @ %s"),
 							endpointInfo.Frontend, s.serviceName, nowStr)
 						addressMap[endpointInfo.Frontend] = true
 					}
@@ -103,7 +103,7 @@ func (s *BackService) WatchBackServiceNodes() {
 				// 等待事件
 				<-evtbus
 			} else {
-				log.WarnErrorf(err, "zk read failed: %s\n", servicePath)
+				log.WarnErrorf(err, "zk read failed: %s", servicePath)
 				// 如果读取失败则，则继续等待5s
 				time.Sleep(time.Duration(5) * time.Second)
 			}
@@ -157,11 +157,11 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 func (s *BackService) StateChanged(conn *BackendConn) {
 	s.Lock()
 	if conn.IsConnActive {
-		log.Printf(Green("MarkConnActiveOK: %s, Index: %d, Count: %d\n"), conn.addr, conn.Addr(), len(s.activeConns))
+		log.Printf(Green("MarkConnActiveOK: %s, Index: %d, Count: %d"), conn.addr, conn.Index, len(s.activeConns))
 
 		if conn.Index == -1 {
 			conn.Index = len(s.activeConns)
-			log.Printf(Red("Add BackendConn to activeConns: %s, Total Actives: %d\n"), conn.Addr(), conn.Index)
+			log.Printf(Red("Add BackendConn to activeConns: %s, Total Actives: %d"), conn.Addr(), conn.Index)
 			s.activeConns = append(s.activeConns, conn)
 		}
 	} else {
@@ -180,7 +180,7 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 			conn.Index = -1
 			// slice
 			s.activeConns = s.activeConns[0:lastIndex]
-			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr())
+			log.Printf(Red("Remove BackendConn From activeConns: %s"), conn.Addr())
 		}
 	}
 	s.Unlock()

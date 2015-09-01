@@ -58,7 +58,7 @@ func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool, b
 	// 还是基于c net.Conn进行读写，只是采用Redis协议进行编码解码
 	// Reader 处理Client发送过来的消息
 	// Writer 将后端服务的数据返回给Client
-	log.Printf(Green("Session From Proxy [%s] created\n"), address)
+	log.Printf(Green("Session From Proxy [%s] created"), address)
 	return s
 }
 
@@ -178,14 +178,4 @@ func (s *NonBlockSession) handleQuit(r *Request) (*Request, error) {
 	s.quit = true
 	//	r.Response.Resp = redis.NewString([]byte("OK"))
 	return r, nil
-}
-
-func (s *NonBlockSession) handlePing(r *Request) (*Request, error) {
-	//	if len(r.Resp.Array) != 1 {
-	//		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'PING' command"))
-	//		return r, nil
-	//	}
-	//	r.Response.Resp = redis.NewString([]byte("PONG"))
-	//	return r, nil
-	return nil, nil
 }

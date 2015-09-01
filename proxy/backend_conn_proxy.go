@@ -4,7 +4,6 @@ package proxy
 
 import (
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
@@ -103,9 +102,9 @@ func (bc *BackendConn) MarkConnActiveFalse() {
 // 从Active切换到非正常状态
 //
 func (bc *BackendConn) MarkConnActiveOK() {
-	if !bc.IsConnActive {
-		log.Printf(Green("MarkConnActiveOK: %s, %p\n"), bc.addr, bc.delegate)
-	}
+	//	if !bc.IsConnActive {
+	//		log.Printf(Green("MarkConnActiveOK: %s, %p"), bc.addr, bc.delegate)
+	//	}
 
 	bc.IsConnActive = true
 	if bc.delegate != nil {
@@ -137,10 +136,10 @@ func (bc *BackendConn) PushBack(r *Request) {
 func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 	// 1. 创建连接(只要IP没有问题， err一般就是空)
 	socket, err = thrift.NewTSocketTimeout(bc.addr, time.Second*5)
-	log.Printf(Cyan("Create Socket To: %s\n"), bc.addr)
+	log.Printf(Cyan("Create Socket To: %s"), bc.addr)
 
 	if err != nil {
-		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s\n", err, bc.addr)
+		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s", err, bc.addr)
 		// 连接不上，失败
 		return nil, err
 	}
@@ -149,7 +148,7 @@ func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 	sleepInterval := 1
 	err = socket.Open()
 	for err != nil {
-		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s\n", err, bc.addr)
+		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s", err, bc.addr)
 		time.Sleep(time.Duration(sleepInterval) * time.Second)
 
 		if sleepInterval < 8 {
@@ -283,7 +282,8 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
 			resp, err := c.ReadFrame()
 
 			if err != nil {
-				if err != io.EOF && err.Error() != "EOF" {
+				err1, ok := err.(thrift.TTransportException)
+				if !ok || err1.TypeId() != thrift.END_OF_FILE {
 					log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v\n"), err)
 				}
 				bc.flushRequests(err)
@@ -350,8 +350,9 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		if !ok {
 			return errors.New("Invalid Response")
 		}
-
-		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
+		if bc.verbose {
+			log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
+		}
 		r = req
 		r.Response.TypeId = typeId
 	}
