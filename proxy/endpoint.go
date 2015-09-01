@@ -30,9 +30,10 @@ func NewServiceEndpoint(service string, serviceId string, frontend string) *Serv
 //
 func (s *ServiceEndpoint) DeleteServiceEndpoint(top *zk.Topology) {
 	path := top.ProductServiceEndPointPath(s.Service, s.ServiceId)
-	zkhelper.DeleteRecursive(top.ZkConn, path, -1)
-
-	log.Println(Red("DeleteServiceEndpoint"), "Path: ", path)
+	if ok, _ := top.Exist(path); ok {
+		zkhelper.DeleteRecursive(top.ZkConn, path, -1)
+		log.Println(Red("DeleteServiceEndpoint"), "Path: ", path)
+	}
 }
 
 //

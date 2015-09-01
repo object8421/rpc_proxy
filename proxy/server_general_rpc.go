@@ -77,6 +77,8 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 
 	// 2. 将信息添加到Zk中, 并且监控Zk的状态(如果添加失败会怎么样?)
 	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr)
+
+	endpoint.DeleteServiceEndpoint(topo)
 	endpoint.AddServiceEndpoint(topo)
 
 	go func() {
