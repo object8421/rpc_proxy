@@ -165,7 +165,8 @@ func (s *NonBlockSession) handleResponse(r *Request) {
 func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
 	//	log.Printf("HandleRequest: %s\n", string(request))
-	r := NewRequest(request, true)
+	// 来自proxy的请求, request中不带有service
+	r := NewRequest(request, false)
 
 	// 处理心跳
 	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
