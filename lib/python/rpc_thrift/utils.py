@@ -12,8 +12,17 @@ _base_protocol = None
 def get_base_protocol(endpoint, timeout=2000):
     global _base_protocol
     if not _base_protocol:
-        hostport = endpoint.split(":")
-        socket = TSocket(hostport[0], int(hostport[1]))
+        if endpoint.find(":") != -1:
+            hostport = endpoint.split(":")
+            host = hostport[0]
+            port = int(hostport[1])
+            unix_socket = None
+        else:
+            host = None
+            port = None
+            unix_socket = endpoint
+
+        socket = TSocket(host=host, port=port, unix_socket=unix_socket)
         socket.setTimeout(timeout)
         socket = TAutoConnectSocket(socket)
 
@@ -23,8 +32,16 @@ def get_base_protocol(endpoint, timeout=2000):
 
 
 def get_base_protocol_4_pool(endpoint, timeout=2000):
-    hostport = endpoint.split(":")
-    socket = TSocket(hostport[0], int(hostport[1]))
+    if endpoint.find(":") != -1:
+        hostport = endpoint.split(":")
+        host = hostport[0]
+        port = int(hostport[1])
+        unix_socket = None
+    else:
+        host = None
+        port = None
+        unix_socket = endpoint
+    socket = TSocket(host=host, port=port, unix_socket=unix_socket)
     socket.setTimeout(timeout)
     socket = TAutoConnectSocket(socket)
 
