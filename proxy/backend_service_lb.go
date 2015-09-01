@@ -5,9 +5,15 @@ package proxy
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"net"
+	"strings"
 	"sync"
 	"time"
 )
+
+type SocketAddr interface {
+	Addr() net.Addr
+}
 
 //
 // Proxy中用来和后端服务通信的模块
@@ -86,21 +92,28 @@ func (s *BackServiceLB) run() {
 		}
 	}()
 
+	var transport thrift.TServerTransport
+	var err error
+
 	// 3. 读取后端服务的配置
-	transport, err := thrift.NewTServerSocket(s.backendAddr)
+	if strings.HasSuffix(s.backendAddr, ".sock") {
+		transport, err = NewTServerUnixDomain(s.backendAddr)
+	} else {
+		transport, err = thrift.NewTServerSocket(s.backendAddr)
+	}
+
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
 		panic("BackendAddr Invalid")
 	}
 
-	err = transport.Open()
+	err = transport.Listen()
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Open Failed: %v", err)
 		panic("Server Socket Open Failed")
 	}
 
 	// 和transport.open做的事情一样，如果Open没错，则Listen也不会有问题
-	transport.Listen()
 
 	log.Printf(Green("LB Backend Services listens at: %s"), s.backendAddr)
 
@@ -117,10 +130,11 @@ func (s *BackServiceLB) run() {
 	go func() {
 		for c := range s.ch {
 			// 为每个Connection建立一个Session
-			socket, ok := c.(*thrift.TSocket)
+			socket, ok := c.(SocketAddr)
 			if ok {
 				backendAddr := socket.Addr().String()
-				conn := NewBackendConnLB(socket, s.serviceName, backendAddr, s, s.verbose)
+
+				conn := NewBackendConnLB(c, s.serviceName, backendAddr, s, s.verbose)
 
 				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
 				s.activeConnsLock.Lock()
@@ -130,8 +144,9 @@ func (s *BackServiceLB) run() {
 
 				log.Printf(Green("Current Active Conns: %d"), conn.Index)
 			} else {
-				panic("Unexpected Socket Type")
+				panic("Invalid Socket Type")
 			}
+
 		}
 	}()
 

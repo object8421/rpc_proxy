@@ -23,9 +23,15 @@ class RpcWorker(object):
     def __init__(self, processor, address, pool_size=5, service=None):
         self.processor = processor
 
-        address = address.split(":")
-        self.host = address[0]
-        self.port = int(address[1])
+        if address.find(":") != -1:
+            address = address.split(":")
+            self.host = address[0]
+            self.port = int(address[1])
+            self.unix_socket = None
+        else:
+            self.host = None
+            self.port = None
+            self.unix_socket = address
 
 
         # 4. gevent
@@ -77,7 +83,7 @@ class RpcWorker(object):
         print "Prepare open a socket to lb: %s:%d" % (self.host, self.port)
 
         # 1. 创建一个到lb的连接，然后开始读取Frame, 并且返回数据
-        socket = TSocket(host=self.host, port=self.port)
+        socket = TSocket(host=self.host, port=self.port, unix_socket=self.unix_socket)
 
         try:
             if not socket.isOpen():
