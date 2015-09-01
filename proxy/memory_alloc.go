@@ -46,18 +46,25 @@ func getSlice(initSize int, capacity int) []byte {
 		return make([]byte, initSize, capacity)
 	}
 
-	// 将所有的Slice
+	// 将所有的Slice状态(length)reset
 	return initSlice(result, initSize)
 }
 
+//
+// slice s 和某个标准(1024/2048)大小的 slice 的起始地址相同, cap相同，但是len不一样
+// initSlice将从s出发，创建一个len一样的slice
+//
 func initSlice(s []byte, initSize int) []byte {
-	var b []byte
-
-	h := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	h.Data = (*reflect.SliceHeader)(unsafe.Pointer(&s)).Data
-	h.Len = initSize
-	h.Cap = cap(s)
-	return b
+	if len(s) == initSize {
+		return s
+	} else {
+		var b []byte
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+		h.Data = (*reflect.SliceHeader)(unsafe.Pointer(&s)).Data
+		h.Len = initSize
+		h.Cap = cap(s)
+		return b
+	}
 }
 
 //
