@@ -87,6 +87,7 @@ class RpcWorker(object):
         self.reconnect_interval = 1
         self.socket = socket
 
+        print "Begin request loop...."
         trans = TFramedTransportEx(TBufferedTransport(socket))
         self.queue = gevent.queue.Queue()
 

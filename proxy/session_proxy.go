@@ -205,6 +205,7 @@ func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) 
 	s.Ops++
 
 	// 交给Dispatch
+	// Router
 	return r, d.Dispatch(r)
 }
 
