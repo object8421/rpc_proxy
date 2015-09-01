@@ -18,7 +18,6 @@ type BackendConnStateChanged interface {
 
 type BackendConn struct {
 	addr string
-	stop sync.Once
 
 	input chan *Request // 输入的请求, 有: 1024个Buffer
 
@@ -34,6 +33,7 @@ type BackendConn struct {
 	IsConnActive  bool // 是否处于Active状态呢
 	verbose       bool
 
+	hbMutex    sync.RWMutex
 	hbLastTime int64
 	hbTicker   *time.Ticker
 	hbTimeout  chan bool
@@ -59,10 +59,15 @@ func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendCo
 func (bc *BackendConn) Heartbeat() {
 	go func() {
 		bc.hbLastTime = time.Now().Unix()
+		var hbLastTime int64
+
 		for true {
 			select {
 			case <-bc.hbTicker.C:
-				if time.Now().Unix()-bc.hbLastTime > HB_TIMEOUT {
+				bc.hbMutex.RLock()
+				hbLastTime = bc.hbLastTime
+				bc.hbMutex.RUnlock()
+				if time.Now().Unix()-hbLastTime > HB_TIMEOUT {
 					bc.hbTimeout <- true
 				} else {
 					if bc.IsConnActive {
@@ -115,12 +120,6 @@ func (bc *BackendConn) MarkConnActiveOK() {
 
 func (bc *BackendConn) Addr() string {
 	return bc.addr
-}
-
-func (bc *BackendConn) Close() {
-	bc.stop.Do(func() {
-		close(bc.input)
-	})
 }
 
 func (bc *BackendConn) PushBack(r *Request) {
@@ -336,7 +335,9 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
 			//			log.Printf(Magenta("Get Ping/Pang Back\n"))
+			bc.hbMutex.Lock()
 			bc.hbLastTime = time.Now().Unix()
+			bc.hbMutex.Unlock()
 			return nil
 		}
 

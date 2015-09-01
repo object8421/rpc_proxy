@@ -31,6 +31,7 @@ type BackendConnLB struct {
 	verbose        bool
 	IsConnActive   bool // 是否处于Active状态呢
 
+	hbMutex    sync.RWMutex
 	hbLastTime int64
 	hbTicker   *time.Ticker
 	hbTimeout  chan bool
@@ -72,10 +73,18 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 func (bc *BackendConnLB) Heartbeat() {
 	go func() {
 		bc.hbLastTime = time.Now().Unix()
+
+		var hbLastTime int64
+
 		for true {
 			select {
 			case <-bc.hbTicker.C:
-				if time.Now().Unix()-bc.hbLastTime > HB_TIMEOUT {
+
+				bc.hbMutex.RLock()
+				hbLastTime = bc.hbLastTime
+				bc.hbMutex.RUnlock()
+
+				if time.Now().Unix()-hbLastTime > HB_TIMEOUT {
 					bc.hbTimeout <- true
 				} else {
 					if bc.IsConnActive {
@@ -305,7 +314,9 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
+			bc.hbMutex.Lock()
 			bc.hbLastTime = time.Now().Unix()
+			bc.hbMutex.Unlock()
 			return nil
 		}
 
