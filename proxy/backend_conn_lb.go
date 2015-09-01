@@ -56,8 +56,8 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		serviceName:    serviceName,
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
-		currentSeqId:   1,
-		Index:          -1,
+		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
+		Index:          INVALID_ARRAY_INDEX,
 		IsConnActive:   true, // 因为transport是刚刚建立的，因此直接认为该transport有效(以后可能需要添加有效性检测)
 		delegate:       delegate,
 		verbose:        verbose,
@@ -347,7 +347,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 func (bc *BackendConnLB) IncreaseCurrentSeqId() {
 	// 备案(只有loopWriter操作，不加锁)
 	bc.currentSeqId++
-	if bc.currentSeqId > 100000 {
-		bc.currentSeqId = 1
+	if bc.currentSeqId > BACKEND_CONN_MAX_SEQ_ID {
+		bc.currentSeqId = BACKEND_CONN_MIN_SEQ_ID
 	}
 }

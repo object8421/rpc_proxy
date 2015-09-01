@@ -156,16 +156,17 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 
 func (s *BackService) StateChanged(conn *BackendConn) {
 	s.Lock()
+	defer s.Unlock()
 	if conn.IsConnActive {
 		log.Printf(Green("MarkConnActiveOK: %s, Index: %d, Count: %d"), conn.addr, conn.Index, len(s.activeConns))
 
-		if conn.Index == -1 {
+		if conn.Index == INVALID_ARRAY_INDEX {
 			conn.Index = len(s.activeConns)
 			log.Printf(Red("Add BackendConn to activeConns: %s, Total Actives: %d"), conn.Addr(), conn.Index)
 			s.activeConns = append(s.activeConns, conn)
 		}
 	} else {
-		if conn.Index != -1 {
+		if conn.Index != INVALID_ARRAY_INDEX {
 			lastIndex := len(s.activeConns) - 1
 
 			// 将最后一个元素和当前的元素交换位置
@@ -177,11 +178,10 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 			}
 
 			s.activeConns[lastIndex] = nil
-			conn.Index = -1
+			conn.Index = INVALID_ARRAY_INDEX
 			// slice
 			s.activeConns = s.activeConns[0:lastIndex]
 			log.Printf(Red("Remove BackendConn From activeConns: %s"), conn.Addr())
 		}
 	}
-	s.Unlock()
 }

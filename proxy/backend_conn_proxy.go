@@ -378,11 +378,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 func (bc *BackendConn) IncreaseCurrentSeqId() {
 	// 备案(只有loopWriter操作，不加锁)
 	bc.currentSeqId++
-	if bc.currentSeqId > 100000 {
-		bc.currentSeqId = 1
+	if bc.currentSeqId > BACKEND_CONN_MAX_SEQ_ID {
+		bc.currentSeqId = BACKEND_CONN_MIN_SEQ_ID
 	}
-}
-
-func FormatYYYYmmDDHHMMSS(date time.Time) string {
-	return date.Format("@2006-01-02 15:04:05")
 }

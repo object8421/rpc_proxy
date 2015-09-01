@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-const (
-	HB_TIMEOUT = 6
-)
-
 //
 // 生成Thrift格式的Exception Message
 //

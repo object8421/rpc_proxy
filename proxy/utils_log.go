@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 )
 
 //
@@ -40,5 +41,8 @@ func SetCrashLog(file string) {
 	} else {
 		syscall.Dup2(int(f.Fd()), 2)
 	}
+}
 
+func FormatYYYYmmDDHHMMSS(date time.Time) string {
+	return date.Format("@2006-01-02 15:04:05")
 }
