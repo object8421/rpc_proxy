@@ -309,6 +309,10 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
 			bc.hbLastTime.Set(time.Now().Unix())
 			return nil
+		} else if typeId == MESSAGE_TYPE_STOP {
+			// 不再接受新的输入
+			bc.MarkConnActiveFalse()
+			return nil
 		}
 
 		// 找到对应的Request

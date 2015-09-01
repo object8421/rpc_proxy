@@ -14,6 +14,7 @@ from thrift.transport.TTransport import TTransportException, TBufferedTransport
 import time
 from rpc_thrift import MESSAGE_TYPE_HEART_BEAT
 from rpc_thrift.config import print_exception
+from rpc_thrift.heartbeat import new_rpc_exit_message
 from rpc_thrift.protocol import TUtf8BinaryProtocol
 from rpc_thrift.transport import TMemoryBuffer, TFramedTransportEx
 
@@ -37,8 +38,10 @@ class RpcWorker(object):
 
         self.responses = []
 
+        self.service = service
         self.queue = None
         self.socket = None
+        self.last_request_time = 0
 
     def handle_request(self, proto_input, queue):
         """
@@ -64,7 +67,9 @@ class RpcWorker(object):
 
 
     def loop_all(self):
+
         while self.alive:
+            # 一次只有一个连接
             self.connection_to_lb()
 
     def connection_to_lb(self):
@@ -72,9 +77,11 @@ class RpcWorker(object):
         print "Prepare open a socket to lb: %s:%d" % (self.host, self.port)
 
         # 1. 创建一个到lb的连接，然后开始读取Frame, 并且返回数据
+        socket = TSocket(host=self.host, port=self.port)
+
         try:
-            socket = TSocket(host=self.host, port=self.port)
-            socket.open()
+            if not socket.isOpen():
+                socket.open()
         except TTransportException:
             print "Sleep %ds for another retry" % self.reconnect_interval
             time.sleep(self.reconnect_interval)
@@ -85,11 +92,13 @@ class RpcWorker(object):
 
         # 2. 连接创建成功
         self.reconnect_interval = 1
+
         self.socket = socket
+        self.queue = gevent.queue.Queue()
 
         print "Begin request loop...."
         trans = TFramedTransportEx(TBufferedTransport(socket))
-        self.queue = gevent.queue.Queue()
+
 
         # 3. 在同一个transport上进行读写数据
         g1=gevent.spawn(self.loop_reader, trans, self.queue)
@@ -99,16 +108,14 @@ class RpcWorker(object):
 
         # 4. 关闭连接
         try:
-            # print "Trans Closed, queue size: ", self.queue.qsize()
+            print "Trans Closed, queue size: ", self.queue.qsize()
             self.queue = None
-            self.socket.close()
             self.socket = None
             trans.close()
         except:
             print_exception()
             pass
 
-        time.sleep(1)
 
 
 
@@ -125,7 +132,7 @@ class RpcWorker(object):
         """
         last_hb_time = time.time()
 
-        while self.alive:
+        while True:
             # 启动就读取数据
             # 什么时候知道是否还有数据呢?
             try:
@@ -144,8 +151,9 @@ class RpcWorker(object):
                     last_hb_time = time.time()
                     # print "Received Heartbeat Signal........"
                     continue
+
                 else:
-                    # print "----->Frame", frame
+                    self.last_request_time = time.time()
                     self.task_pool.spawn(self.handle_request, proto_input, queue)
                     # self.handle_request(frame, queue)
             except TTransportException as e:
@@ -187,6 +195,25 @@ class RpcWorker(object):
             print "....Worker Connection To LB Failed, LoopRead Stop"
 
 
+    def prepare_exit(self):
+        # 1. 当前的readloop结束之后就不再注册
+        self.alive = False
+
+        if not self.queue:
+            return
+
+        self.queue.put(new_rpc_exit_message())
+
+        # 过一会应该就没有新的消息过来了
+        start = time.time()
+        while True and self.queue:
+            now = time.time()
+            if now - self.last_request_time > 5:
+                print "[%s]Grace Exit of Worker" % self.service
+                exit(0)
+            else:
+                print "[%s]Waiting Exit of Worker, %.2fs" % (self.service, now - start)
+                time.sleep(1)
 
 
     def run(self):
@@ -213,28 +240,13 @@ class RpcWorker(object):
             self.acceptor_task = None
 
     def init_signal(self):
-        def handle_int(*_):
-            print Fore.RED, "Receive Exit Signal", Fore.RESET
-            self.alive = False
-
-            if self.queue:
-                self.queue.put(None)
-
-            if self.socket:
-                self.socket.close()
-
-
         def handle_term(*_):
-            # 主动退出
             print Fore.RED, "Receive Exit Signal", Fore.RESET
-            self.alive = False
-            if self.queue:
-                self.queue.put(None)
-            if self.socket:
-                self.socket.close()
+            self.prepare_exit()
+
 
         # 2/15
-        signal.signal(signal.SIGINT, handle_int)
+        signal.signal(signal.SIGINT, handle_term)
         signal.signal(signal.SIGTERM, handle_term)
 
         print Fore.RED, "To graceful stop current worker plz. use:", Fore.RESET
