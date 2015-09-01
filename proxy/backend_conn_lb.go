@@ -37,7 +37,7 @@ type BackendConnLB struct {
 }
 
 //
-// LB(Load Balancer)以Server的形式和后端的服务(Backend)进行通信；
+// LB(Load Balancer)启动一个Server和后端的服务(Backend)通信， 后端服务负责主动连接LB；
 // 1. LB负责定期地和Backend进行ping/pang;
 //    如果LB发现Backend长时间没有反应，或者出错，则端口和Backend之间的连接
 // 2. Backend根据config.ini主动注册LB, 按照一定的策略重连
