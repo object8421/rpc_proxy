@@ -70,30 +70,36 @@ func (bc *BackendConn) Heartbeat() {
 				if time.Now().Unix()-hbLastTime > HB_TIMEOUT {
 					bc.hbTimeout <- true
 				} else {
-					if bc.IsConnActive {
-						// 定时添加Ping的任务
-						r := NewPingRequest()
-						bc.PushBack(r)
-					}
+					// 定时添加Ping的任务
+					r := NewPingRequest()
+					bc.PushBack(r)
 				}
 			}
 		}
 	}()
 }
 
+//
+// MarkOffline发生场景:
+// 1. 后端服务即将下线，预先通知
+// 2. 后端服务已经挂了，zk检测到
+//
+// BackendConn 在这里暂时理解关闭conn, 而是从 backend_service_proxy中下线当前的conn,
+// 然后conn的关闭根据 心跳&Conn的读写异常来判断; 因此 IsConnActive = false 情况下，心跳不能关闭
+//
 func (bc *BackendConn) MarkOffline() {
 	if !bc.IsMarkOffline {
-		log.Printf(Red("BackendConn: %s MarkOffline\n"), bc.addr)
+		log.Printf(Magenta("BackendConn: %s MarkOffline"), bc.addr)
 		bc.IsMarkOffline = true
 
-		// 不再接受新的输入
+		// 不再接受(来自backend_service_proxy的)新的输入
 		bc.MarkConnActiveFalse()
 	}
 }
 
 func (bc *BackendConn) MarkConnActiveFalse() {
 	if bc.IsConnActive {
-		log.Printf(Red("MarkConnActiveFalse: %s, %p\n"), bc.addr, bc.delegate)
+		log.Printf(Red("MarkConnActiveFalse: %s, %p"), bc.addr, bc.delegate)
 		// 从Active切换到非正常状态
 		bc.IsConnActive = false
 
@@ -168,7 +174,7 @@ func (bc *BackendConn) Run() {
 		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 		socket, err := bc.ensureConn()
 		if err != nil {
-			log.ErrorErrorf(err, "BackendConn#ensureConn error: %v\n", err)
+			log.ErrorErrorf(err, "BackendConn#ensureConn error: %v", err)
 			return
 		}
 
@@ -234,7 +240,7 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 		// 请求正常转发给后端的Rpc Server
 		var flush = len(bc.input) == 0
 		if bc.verbose {
-			fmt.Printf("Force flush %t\n", flush)
+			fmt.Printf("Force flush %t", flush)
 		}
 
 		// 1. 替换新的SeqId
@@ -284,7 +290,7 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
 			if err != nil {
 				err1, ok := err.(thrift.TTransportException)
 				if !ok || err1.TypeId() != thrift.END_OF_FILE {
-					log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v\n"), err)
+					log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v"), err)
 				}
 				bc.flushRequests(err)
 				break
@@ -321,7 +327,7 @@ func (bc *BackendConn) flushRequests(err error) {
 func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	// 表示出现错误了
 	if data == nil {
-		log.Printf("No Data From Server, error: %v\n", err)
+		log.Printf("No Data From Server, error: %v", err)
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
@@ -334,7 +340,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
-			//			log.Printf(Magenta("Get Ping/Pang Back\n"))
+			//			log.Printf(Magenta("Get Ping/Pang Back"))
 			bc.hbMutex.Lock()
 			bc.hbLastTime = time.Now().Unix()
 			bc.hbMutex.Unlock()
@@ -353,7 +359,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			return errors.New("Invalid Response")
 		}
 		if bc.verbose {
-			log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
+			log.Printf("Data From Server, seqId: %d, Request: %d", seqId, req.Request.SeqId)
 		}
 		r = req
 		r.Response.TypeId = typeId

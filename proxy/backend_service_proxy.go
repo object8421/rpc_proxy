@@ -16,12 +16,13 @@ type BackService struct {
 	serviceName string
 	topo        *zk.Topology
 
-	sync.RWMutex
+	activeConnsLock  sync.RWMutex
 	activeConns      []*BackendConn // 每一个BackendConn应该有一定的高可用保障
 	currentConnIndex int
-	addr2Conn        map[string]*BackendConn
 
-	verbose bool
+	// 用于zk的状态管理(记录当前有效的Conn)
+	addr2Conn map[string]*BackendConn
+	verbose   bool
 }
 
 // 创建一个BackService
@@ -36,6 +37,13 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 	}
 
 	service.WatchBackServiceNodes()
+
+	go func() {
+		for true {
+			log.Printf(Green("[Report]: %s Current Active Conns: %d"), service.serviceName, service.Active())
+			time.Sleep(time.Second * 10)
+		}
+	}()
 
 	return service
 
@@ -76,10 +84,7 @@ func (s *BackService) WatchBackServiceNodes() {
 					}
 				}
 
-				s.Lock()
-
 				for addr, _ := range addressMap {
-
 					conn, ok := s.addr2Conn[addr]
 					if ok && !conn.IsMarkOffline {
 						continue
@@ -88,6 +93,7 @@ func (s *BackService) WatchBackServiceNodes() {
 						s.addr2Conn[addr] = NewBackendConn(addr, s, s.verbose)
 					}
 				}
+
 				for addr, conn := range s.addr2Conn {
 					_, ok := addressMap[addr]
 					if !ok {
@@ -97,7 +103,6 @@ func (s *BackService) WatchBackServiceNodes() {
 						delete(s.addr2Conn, addr)
 					}
 				}
-				s.Unlock()
 
 				// 等待事件
 				<-evtbus
@@ -114,7 +119,10 @@ func (s *BackService) WatchBackServiceNodes() {
 // 获取下一个active状态的BackendConn
 func (s *BackService) NextBackendConn() *BackendConn {
 	var backSocket *BackendConn
-	s.RLock()
+
+	s.activeConnsLock.RLock()
+	defer s.activeConnsLock.RUnlock()
+
 	if len(s.activeConns) == 0 {
 		backSocket = nil
 	} else {
@@ -124,7 +132,7 @@ func (s *BackService) NextBackendConn() *BackendConn {
 		backSocket = s.activeConns[s.currentConnIndex]
 		s.currentConnIndex++
 	}
-	s.RUnlock()
+
 	return backSocket
 }
 
@@ -154,17 +162,22 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 }
 
 func (s *BackService) StateChanged(conn *BackendConn) {
-	s.Lock()
-	defer s.Unlock()
+	log.Printf(Green("StateChanged: %s, Index: %d, Count: %d, IsConnActive: %t"),
+		conn.addr, conn.Index, len(s.activeConns), conn.IsConnActive)
+
+	s.activeConnsLock.Lock()
+	defer s.activeConnsLock.Unlock()
+
 	if conn.IsConnActive {
 		log.Printf(Green("MarkConnActiveOK: %s, Index: %d, Count: %d"), conn.addr, conn.Index, len(s.activeConns))
 
 		if conn.Index == INVALID_ARRAY_INDEX {
 			conn.Index = len(s.activeConns)
-			log.Printf(Red("Add BackendConn to activeConns: %s, Total Actives: %d"), conn.Addr(), conn.Index)
+			log.Printf(Green("Add BackendConn to activeConns: %s, Total Actives: %d"), conn.Addr(), conn.Index)
 			s.activeConns = append(s.activeConns, conn)
 		}
 	} else {
+		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d"), conn.Addr(), conn.Index)
 		if conn.Index != INVALID_ARRAY_INDEX {
 			lastIndex := len(s.activeConns) - 1
 
@@ -178,9 +191,10 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 
 			s.activeConns[lastIndex] = nil
 			conn.Index = INVALID_ARRAY_INDEX
+
 			// slice
 			s.activeConns = s.activeConns[0:lastIndex]
-			log.Printf(Red("Remove BackendConn From activeConns: %s"), conn.Addr())
+			log.Printf(Red("Remove BackendConn From activeConns: %s, Remains: %d"), conn.Addr(), len(s.activeConns))
 		}
 	}
 }

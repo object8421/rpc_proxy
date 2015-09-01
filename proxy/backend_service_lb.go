@@ -6,6 +6,7 @@ import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"sync"
+	"time"
 )
 
 //
@@ -25,7 +26,8 @@ type BackServiceLB struct {
 }
 
 // 创建一个BackService
-func NewBackServiceLB(serviceName string, backendAddr string, verbose bool, exitEvt chan bool) *BackServiceLB {
+func NewBackServiceLB(serviceName string, backendAddr string, verbose bool,
+	exitEvt chan bool) *BackServiceLB {
 
 	service := &BackServiceLB{
 		serviceName: serviceName,
@@ -52,7 +54,7 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 	if backendConn == nil {
 		// 没有后端服务
 		if s.verbose {
-			log.Printf(Red("No BackSocket Found for service: %s.%s\n"), s.serviceName, r.Request.Name)
+			log.Printf(Red("No BackSocket Found for service: %s.%s"), s.serviceName, r.Request.Name)
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(r, "BackServiceLB")
@@ -73,23 +75,30 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 }
 
 func (s *BackServiceLB) run() {
+	go func() {
+		for true {
+			log.Printf(Green("[Report]: %s Current Active Conns: %d"), s.serviceName, s.Active())
+			time.Sleep(time.Second * 10)
+		}
+	}()
+
 	// 3. 读取后端服务的配置
 	transport, err := thrift.NewTServerSocket(s.backendAddr)
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v\n", err)
+		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
 		panic("BackendAddr Invalid")
 	}
 
 	err = transport.Open()
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Open Failed: %v\n", err)
+		log.ErrorErrorf(err, "Server Socket Open Failed: %v", err)
 		panic("Server Socket Open Failed")
 	}
 
 	// 和transport.open做的事情一样，如果Open没错，则Listen也不会有问题
 	transport.Listen()
 
-	log.Printf(Green("LB Backend Services listens at: %s\n"), s.backendAddr)
+	log.Printf(Green("LB Backend Services listens at: %s"), s.backendAddr)
 
 	s.ch = make(chan thrift.TTransport, 4096)
 
@@ -115,7 +124,7 @@ func (s *BackServiceLB) run() {
 				conn.Index = len(s.activeConns)
 				s.activeConns = append(s.activeConns, conn)
 				s.Unlock()
-				log.Printf(Green("Current Active Conns: %d\n"), conn.Index)
+				log.Printf(Green("Current Active Conns: %d"), conn.Index)
 			} else {
 				panic("Unexpected Socket Type")
 			}
@@ -147,7 +156,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 	s.RLock()
 	if len(s.activeConns) == 0 {
 		if s.verbose {
-			log.Printf(Cyan("ActiveConns Len 0\n"))
+			log.Printf(Cyan("ActiveConns Len 0"))
 		}
 		backSocket = nil
 	} else {
@@ -157,7 +166,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 		backSocket = s.activeConns[s.currentConnIndex]
 		s.currentConnIndex++
 		if s.verbose {
-			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d\n"), len(s.activeConns), s.currentConnIndex)
+			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d"), len(s.activeConns), s.currentConnIndex)
 		}
 	}
 	s.RUnlock()
@@ -166,14 +175,18 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 
 // 只有在conn出现错误时才会调用
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
+	log.Printf(Green("StateChanged: %s, Index: %d, Count: %d"), conn.addr4Log, conn.Index, len(s.activeConns))
+
 	s.Lock()
+	defer s.Unlock()
+
 	if conn.IsConnActive {
-		log.Printf(Magenta("Unexpected BackendConnLB State\n"))
+		log.Printf(Magenta("Unexpected BackendConnLB State"))
 		if s.verbose {
 			panic("Unexpected BackendConnLB State")
 		}
 	} else {
-		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d, Count: %d\n"), conn.Addr4Log(), conn.Index, len(s.activeConns))
+		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d, Count: %d"), conn.Addr4Log(), conn.Index, len(s.activeConns))
 
 		// 从数组中删除一个元素(O(1)的操作)
 		if conn.Index != INVALID_ARRAY_INDEX {
@@ -191,12 +204,11 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 				conn.Index = INVALID_ARRAY_INDEX
 
 			}
-			log.Printf(Red("Remove BackendConn From activeConns: %s\n"), conn.Addr4Log())
+			log.Printf(Red("Remove BackendConn From activeConns: %s"), conn.Addr4Log())
 
 			// 2. slice
 			s.activeConns = s.activeConns[0:lastIndex]
 
 		}
 	}
-	s.Unlock()
 }
