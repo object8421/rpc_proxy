@@ -33,7 +33,7 @@ func NewPingRequest() *Request {
 
 	r := &Request{}
 	// 告诉Request, Data中不包含service，在ReplaceSeqId时不需要特别处理
-	r.ServiceInRequest = false
+	r.ProxyRequest = false
 	r.Start = time.Now().Unix()
 	r.Request.Data = transport.Bytes()
 	r.Request.Name = "ping"

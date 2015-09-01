@@ -20,8 +20,8 @@ const (
 )
 
 type Request struct {
-	Service          string // 服务
-	ServiceInRequest bool   // Service是否出现在Request.Data中，默认为true, 但是信条等信号中没有service
+	Service      string // 服务
+	ProxyRequest bool   // Service是否出现在Request.Data中，默认为true, 但是心跳等信号中没有service
 
 	// 原始的数据(虽然拷贝有点点效率低，但是和zeromq相比也差不多)
 	Request struct {
@@ -53,8 +53,8 @@ type Request struct {
 //
 func NewRequest(data []byte, serviceInReq bool) *Request {
 	request := &Request{
-		Wait:             &sync.WaitGroup{},
-		ServiceInRequest: serviceInReq,
+		Wait:         &sync.WaitGroup{},
+		ProxyRequest: serviceInReq,
 	}
 	request.Request.Data = data
 	request.DecodeRequest()
@@ -93,7 +93,7 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 		start := 0
 
-		if r.ServiceInRequest {
+		if r.ProxyRequest {
 			start = len(r.Service)
 		}
 		if start > 0 {

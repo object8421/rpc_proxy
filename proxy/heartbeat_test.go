@@ -24,7 +24,7 @@ func TestHeatbeat(t *testing.T) {
 	}
 	fmt.Println()
 
-	assert.False(t, request.ServiceInRequest)
+	assert.False(t, request.ProxyRequest)
 
 	request.Service = "测试"
 	len1 := request.Request.Data

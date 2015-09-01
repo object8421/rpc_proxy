@@ -3,8 +3,8 @@
 package proxy
 
 import (
-	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
@@ -28,29 +28,25 @@ func TestRequest(t *testing.T) {
 
 	r := NewRequest(data, true)
 
-	if r.Service != "demo" {
-		t.Errorf("Service Name should be: %s", "demo")
-	}
-	if r.Request.Name != "demo:hello" {
-		t.Errorf("Request Name should be: %s", "demo:hello")
-	}
+	assert.Equal(t, "demo", r.Service)
+	assert.Equal(t, "hello", r.Request.Name)
 
-	fmt.Printf("Name: %s, SeqId: %d, TypeId: %d\n", r.Request.Name, r.Request.SeqId, r.Request.TypeId)
+	//	fmt.Printf("Name: %s, SeqId: %d, TypeId: %d\n", r.Request.Name,
+	//		r.Request.SeqId, r.Request.TypeId)
 
 	var newSeqId int32 = 10
 	r.ReplaceSeqId(newSeqId)
 
-	r1 := NewRequest(data, true)
-	fmt.Printf("Name: %s, SeqId: %d, TypeId: %d\n", r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
+	_, seqId1, _ := DecodeThriftTypIdSeqId(r.Request.Data)
+	assert.Equal(t, newSeqId, seqId1) // r.Request.Data中的id被替换成功
 
-	if r1.Request.SeqId != newSeqId {
-		t.Errorf("ReplaceSeqId not working\n")
-	}
-
-	r.Response.Data = data
+	r.Response.Data = r.Request.Data
 	r.RestoreSeqId()
 
 	// 恢复正常
-	r1 = NewRequest(data, true)
-	fmt.Printf("Name: %s, SeqId: %d, TypeId: %d\n", r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
+	_, seqId2, _ := DecodeThriftTypIdSeqId(r.Response.Data)
+
+	//	fmt.Printf("Reqeust SeqId: %d, %d\n", r.Request.SeqId, seqId2)
+	assert.Equal(t, 0, int(seqId2))
+
 }
