@@ -1,1 +1,1 @@
-thrift -r --gen go rpc_thrift.services.thrift
+thrift -r --gen go rpc_thrift_service.thrift
