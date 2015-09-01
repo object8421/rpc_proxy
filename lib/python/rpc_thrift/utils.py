@@ -9,7 +9,7 @@ from rpc_thrift.transport import TAutoConnectSocket
 
 # Client目前只考虑单线程的情况, 如果是多线程，或者coroutine可能需要使用pool
 _base_protocol = None
-def get_base_protocol(endpoint, timeout=2000):
+def get_base_protocol(endpoint, timeout=2000, frame_trans=None):
     global _base_protocol
     if not _base_protocol:
         if endpoint.find(":") != -1:
@@ -26,7 +26,8 @@ def get_base_protocol(endpoint, timeout=2000):
         socket.setTimeout(timeout)
         socket = TAutoConnectSocket(socket)
 
-        transport = TFramedTransport(socket)
+        frame_trans = frame_trans or TFramedTransport
+        transport = frame_trans(socket)
         _base_protocol = TBinaryProtocol(transport)
     return _base_protocol
 
