@@ -235,7 +235,9 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
 		// 请求正常转发给后端的Rpc Server
 		var flush = len(bc.input) == 0
-		fmt.Printf("Force flush %t\n", flush)
+		if bc.verbose {
+			fmt.Printf("Force flush %t\n", flush)
+		}
 
 		// 1. 替换新的SeqId
 		r.ReplaceSeqId(bc.currentSeqId)
