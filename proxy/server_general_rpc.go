@@ -224,7 +224,6 @@ func (p *ThriftRpcServer) Run() {
 	for {
 		c, err := transport.Accept()
 		if err != nil {
-			close(ch)
 			break
 		} else {
 			ch <- c
