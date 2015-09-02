@@ -4,21 +4,24 @@ import time
 import traceback
 from rpc_thrift.services.ttypes import RpcException
 
-def calculate_class_fun_execute_time(info_logger):
+def rpc_wrapper_for_class_method(info_logger):
     """
-    计算类成员函数的执行时间, 使用方法:
-    @calculate_class_fun_execute_time(logger)
-    def xxxx
+    计算类成员函数的执行时间&异常处理, 使用方法(其中logger可以为None)
+        @calculate_class_fun_execute_time(logger)
+        def processs_method(self, param1):
+            xxx
     """
     def wrapper(func):
         def _calculate_time(*args, **kwargs):
             try:
-                t = time.time()
-                result = func(*args, **kwargs)
-                t = time.time() - t
-                args_str = ", ".join(map(str, args[1:]))
                 if info_logger:
-                    info_logger.info('%s(%s), elapsed: %.4fs' % (func.__name__, args_str, t))
+                    t = time.time()
+                    result = func(*args, **kwargs)
+                    t = (time.time() - t) * 1000
+                    args_str = ", ".join(map(str, args[1:]))
+                    info_logger.info('\033[32m%s\033[39m(%s), Elapsed: %.2fms' % (func.__name__, args_str, t))
+                else:
+                    result = func(*args, **kwargs)
                 return result
             except Exception as e:
                 args_str = ", ".join(map(str, args[1:]))
@@ -27,21 +30,26 @@ def calculate_class_fun_execute_time(info_logger):
         return _calculate_time
     return wrapper
 
-def calculate_fun_execute_time(info_logger):
+
+
+def rpc_wrapper_for_method(info_logger):
     """
-    计算类成员函数的执行时间, 使用方法:
-    @calculate_class_fun_execute_time(logger)
-    def xxxx
+    计算普通函数的执行时间&异常处理, 使用方法(其中logger可以为None)
+        @calculate_class_fun_execute_time(logger)
+        def processs_method(self, param1):
+            xxx
     """
     def wrapper(func):
         def _calculate_time(*args, **kwargs):
             try:
-                t = time.time()
-                result = func(*args, **kwargs)
-                t = time.time() - t
-                args_str = ", ".join(map(str, args))
                 if info_logger:
-                    info_logger.info('%s(%s), elapsed: %.4fs' % (func.__name__, args_str, t))
+                    t = time.time()
+                    result = func(*args, **kwargs)
+                    t = (time.time() - t) * 1000
+                    args_str = ", ".join(map(str, args))
+                    info_logger.info('\033[32m%s\033[39m(%s), Elapsed: %.4fms' % (func.__name__, args_str, t))
+                else:
+                    result = func(*args, **kwargs)
                 return result
             except Exception as e:
                 args_str = ", ".join(map(str, args))
