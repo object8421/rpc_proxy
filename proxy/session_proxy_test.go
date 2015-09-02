@@ -84,7 +84,7 @@ func TestSession(t *testing.T) {
 	go func() {
 		// 模拟请求:
 		// 客户端代码
-		bc := NewBackendConn(addr, nil, true)
+		bc := NewBackendConn(addr, nil, "test", true)
 		bc.currentSeqId = 10
 
 		// 准备发送数据

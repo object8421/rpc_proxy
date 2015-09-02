@@ -30,7 +30,7 @@ type BackendConnLB struct {
 	Index          int
 	delegate       BackendConnLBStateChanged
 	verbose        bool
-	IsConnActive   bool // 是否处于Active状态呢
+	IsConnActive   atomic2.Bool // 是否处于Active状态呢
 
 	hbLastTime atomic2.Int64
 	hbTicker   *time.Ticker
@@ -59,10 +59,10 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		seqNum2Request: make(map[int32]*Request, 4096),
 		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
 		Index:          INVALID_ARRAY_INDEX,
-		IsConnActive:   true, // 因为transport是刚刚建立的，因此直接认为该transport有效(以后可能需要添加有效性检测)
 		delegate:       delegate,
 		verbose:        verbose,
 	}
+	bc.IsConnActive.Set(true)
 	go bc.Run()
 	return bc
 }
@@ -74,16 +74,20 @@ func (bc *BackendConnLB) Heartbeat() {
 	go func() {
 		bc.hbLastTime.Set(time.Now().Unix())
 
+	LOOP:
 		for true {
 			select {
 			case <-bc.hbTicker.C:
 				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
+					break LOOP
 				} else {
-					if bc.IsConnActive {
+					if bc.IsConnActive.Get() {
 						// 定时添加Ping的任务
 						r := NewPingRequest()
 						bc.PushBack(r)
+					} else {
+						break LOOP
 					}
 				}
 			}
@@ -93,11 +97,11 @@ func (bc *BackendConnLB) Heartbeat() {
 
 func (bc *BackendConnLB) MarkConnActiveFalse() {
 	// 从Active切换到非正常状态
-	if bc.IsConnActive && bc.delegate != nil {
-		bc.IsConnActive = false
+	if bc.IsConnActive.Get() && bc.delegate != nil {
+		bc.IsConnActive.Set(false)
 		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
 	} else {
-		bc.IsConnActive = false
+		bc.IsConnActive.Set(false)
 	}
 }
 
@@ -128,10 +132,6 @@ func (bc *BackendConnLB) Run() {
 
 func (bc *BackendConnLB) Addr4Log() string {
 	return bc.addr4Log
-}
-
-func (bc *BackendConnLB) Close() {
-
 }
 
 //

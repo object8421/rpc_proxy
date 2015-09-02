@@ -59,7 +59,8 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 	if backendConn == nil {
 		// 没有后端服务
 		if s.verbose {
-			log.Printf(Red("No BackSocket Found for service: %s.%s"), s.serviceName, r.Request.Name)
+			log.Printf(Red("No BackSocket Found for service: %s.%s"),
+				s.serviceName, r.Request.Name)
 		}
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(r, "BackServiceLB")
@@ -83,7 +84,8 @@ func (s *BackServiceLB) run() {
 	go func() {
 		// 定时汇报当前的状态
 		for true {
-			log.Printf(Green("[Report]: %s Current Active Conns: %d"), s.serviceName, s.Active())
+			log.Printf(Green("[Report]: %s Current Active Conns: %d"),
+				s.serviceName, s.Active())
 			time.Sleep(time.Second * 10)
 		}
 	}()
@@ -93,7 +95,8 @@ func (s *BackServiceLB) run() {
 
 	// 3. 读取后端服务的配置
 	isUnixDomain := false
-	if strings.HasSuffix(s.backendAddr, ".sock") {
+	// 127.0.0.1:9999(以:区分不同的类型)
+	if !strings.Contains(s.backendAddr, ":") {
 		if FileExist(s.backendAddr) {
 			os.Remove(s.backendAddr)
 		}
@@ -193,7 +196,8 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 		backSocket = s.activeConns[s.currentConnIndex]
 		s.currentConnIndex++
 		if s.verbose {
-			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d"), len(s.activeConns), s.currentConnIndex)
+			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d"),
+				len(s.activeConns), s.currentConnIndex)
 		}
 	}
 	return backSocket
@@ -206,7 +210,7 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 	s.activeConnsLock.Lock()
 	defer s.activeConnsLock.Unlock()
 
-	if conn.IsConnActive {
+	if conn.IsConnActive.Get() {
 		// BackServiceLB 只有一个状态转移: Active --> Not Active
 		log.Printf(Magenta("Unexpected BackendConnLB State"))
 		if s.verbose {

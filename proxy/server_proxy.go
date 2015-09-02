@@ -50,7 +50,7 @@ func (p *ProxyServer) Run() {
 
 	// 读取后端服务的配置
 	isUnixDomain := false
-	if strings.HasSuffix(p.proxyAddr, ".sock") {
+	if !strings.Contains(p.proxyAddr, ":") {
 		if FileExist(p.proxyAddr) {
 			os.Remove(p.proxyAddr)
 		}

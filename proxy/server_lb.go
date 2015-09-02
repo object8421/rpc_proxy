@@ -60,9 +60,9 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	// 127.0.0.1:5555 --> 127_0_0_1:5555
 
-	ch1 := make(chan os.Signal, 1)
+	exitSignal := make(chan os.Signal, 1)
 
-	signal.Notify(ch1, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
+	signal.Notify(exitSignal, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 	// syscall.SIGKILL
 	// kill -9 pid
 	// kill -s SIGKILL pid 还是留给运维吧
@@ -97,7 +97,10 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	// 强制退出? TODO: Graceful退出
 	go func() {
-		<-ch1
+		<-exitSignal
+
+		// 通知RegisterService终止循环
+		evtExit <- true
 		log.Info(Green("Receive Exit Signals...."))
 		serviceEndpoint.DeleteServiceEndpoint(p.topo)
 
@@ -140,7 +143,8 @@ func (p *ThriftLoadBalanceServer) Run() {
 	for {
 		c, err := transport.Accept()
 		if err != nil {
-			return
+			close(ch)
+			break
 		} else {
 			ch <- c
 		}

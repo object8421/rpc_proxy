@@ -12,14 +12,10 @@ import (
 )
 
 type Router struct {
-	mu sync.Mutex
-	//	pool   map[string]*SharedBackendConn
-	closed bool
-
-	sync.RWMutex
-	services map[string]*BackService
-	topo     *zk.Topology
-	verbose  bool
+	serviceLock sync.RWMutex
+	services    map[string]*BackService
+	topo        *zk.Topology
+	verbose     bool
 }
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
@@ -49,18 +45,6 @@ func (s *Router) Dispatch(r *Request) error {
 	}
 }
 
-//
-// 打印当前的Service的情况
-//
-func (bk *Router) ReportServices() {
-	bk.RLock()
-	log.Info(Green("Report Service Workers: "))
-	for serviceName, service := range bk.services {
-		log.Infof("Service: %s, Worker Count: %d\n", serviceName, service.Active())
-	}
-	bk.RUnlock()
-}
-
 // Router负责监听zk中服务列表的变化
 func (bk *Router) WatchServices() {
 	var evtbus chan interface{} = make(chan interface{}, 2)
@@ -77,7 +61,7 @@ func (bk *Router) WatchServices() {
 			services, err := bk.topo.WatchChildren(servicesPath, evtbus)
 
 			if err == nil {
-				bk.Lock()
+				bk.serviceLock.Lock()
 				// 保证数据更新是有效的
 				oldServices := bk.services
 				bk.services = make(map[string]*BackService, len(services))
@@ -93,21 +77,21 @@ func (bk *Router) WatchServices() {
 						bk.addBackService(service)
 					}
 				}
-				bk.Unlock()
-
 				if len(oldServices) > 0 {
-					go func() {
-						for len(oldServices) > 0 {
-							// 遍历，并且关闭
-							// TODO:
-						}
-					}()
+					for _, conn := range oldServices {
+						// 标记下线(现在应该不会有新的请求，最多只会处理一些收尾的工作
+						conn.Stop()
+					}
+
 				}
+
+				bk.serviceLock.Unlock()
 
 				// 等待事件
 				<-evtbus
 			} else {
-				log.ErrorErrorf(err, "zk watch error: %s, error: %v\n", servicesPath, err)
+				log.ErrorErrorf(err, "zk watch error: %s, error: %v\n",
+					servicesPath, err)
 				time.Sleep(time.Duration(5) * time.Second)
 			}
 		}
@@ -128,9 +112,9 @@ func (bk *Router) addBackService(service string) {
 
 }
 func (bk *Router) GetBackService(service string) *BackService {
-	bk.RLock()
+	bk.serviceLock.RLock()
 	backService, ok := bk.services[service]
-	bk.RUnlock()
+	bk.serviceLock.RUnlock()
 
 	if ok {
 		return backService

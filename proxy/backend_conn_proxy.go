@@ -18,9 +18,9 @@ type BackendConnStateChanged interface {
 }
 
 type BackendConn struct {
-	addr string
-
-	input chan *Request // 输入的请求, 有: 1024个Buffer
+	addr    string
+	service string
+	input   chan *Request // 输入的请求, 有: 1024个Buffer
 
 	// seqNum2Request 读写基本上差不多
 	sync.Mutex
@@ -30,8 +30,8 @@ type BackendConn struct {
 	Index    int
 	delegate *BackService
 
-	IsMarkOffline bool // 是否标记下线
-	IsConnActive  bool // 是否处于Active状态呢
+	IsMarkOffline atomic2.Bool // 是否标记下线
+	IsConnActive  atomic2.Bool // 是否处于Active状态呢
 	verbose       bool
 
 	hbLastTime atomic2.Int64
@@ -39,17 +39,16 @@ type BackendConn struct {
 	hbTimeout  chan bool
 }
 
-func NewBackendConn(addr string, delegate *BackService, verbose bool) *BackendConn {
+func NewBackendConn(addr string, delegate *BackService, service string, verbose bool) *BackendConn {
 	bc := &BackendConn{
 		addr:           addr,
+		service:        service,
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		hbTimeout:      make(chan bool),
 		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
 		Index:          INVALID_ARRAY_INDEX,
 		delegate:       delegate,
-		IsConnActive:   false,
-		IsMarkOffline:  false,
 		verbose:        verbose,
 	}
 	go bc.Run()
@@ -60,15 +59,21 @@ func (bc *BackendConn) Heartbeat() {
 	go func() {
 		bc.hbLastTime.Set(time.Now().Unix())
 
+	LOOP:
 		for true {
 			select {
 			case <-bc.hbTicker.C:
 				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
+					break LOOP
 				} else {
-					// 定时添加Ping的任务
-					r := NewPingRequest()
-					bc.PushBack(r)
+					// 定时添加Ping的任务; 如果标记下线，则不在心跳
+					if !bc.IsMarkOffline.Get() {
+						r := NewPingRequest()
+						bc.PushBack(r)
+					} else {
+						break LOOP
+					}
 				}
 			}
 		}
@@ -84,9 +89,9 @@ func (bc *BackendConn) Heartbeat() {
 // 然后conn的关闭根据 心跳&Conn的读写异常来判断; 因此 IsConnActive = false 情况下，心跳不能关闭
 //
 func (bc *BackendConn) MarkOffline() {
-	if !bc.IsMarkOffline {
-		log.Printf(Magenta("BackendConn: %s MarkOffline"), bc.addr)
-		bc.IsMarkOffline = true
+	if !bc.IsMarkOffline.Get() {
+		log.Printf(Magenta("[%s]BackendConn: %s MarkOffline"), bc.service, bc.addr)
+		bc.IsMarkOffline.Set(true)
 
 		// 不再接受(来自backend_service_proxy的)新的输入
 		bc.MarkConnActiveFalse()
@@ -94,10 +99,10 @@ func (bc *BackendConn) MarkOffline() {
 }
 
 func (bc *BackendConn) MarkConnActiveFalse() {
-	if bc.IsConnActive {
-		log.Printf(Red("MarkConnActiveFalse: %s, %p"), bc.addr, bc.delegate)
+	if bc.IsConnActive.Get() {
+		log.Printf(Red("[%s]MarkConnActiveFalse: %s, %p"), bc.service, bc.addr, bc.delegate)
 		// 从Active切换到非正常状态
-		bc.IsConnActive = false
+		bc.IsConnActive.Set(false)
 
 		if bc.delegate != nil {
 			bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
@@ -113,7 +118,7 @@ func (bc *BackendConn) MarkConnActiveOK() {
 	//		log.Printf(Green("MarkConnActiveOK: %s, %p"), bc.addr, bc.delegate)
 	//	}
 
-	bc.IsConnActive = true
+	bc.IsConnActive.Set(true)
 	if bc.delegate != nil {
 		bc.delegate.StateChanged(bc) // 通知其他人状态出现问题
 	}
@@ -137,10 +142,10 @@ func (bc *BackendConn) PushBack(r *Request) {
 func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 	// 1. 创建连接(只要IP没有问题， err一般就是空)
 	socket, err = thrift.NewTSocketTimeout(bc.addr, time.Second*5)
-	log.Printf(Cyan("Create Socket To: %s"), bc.addr)
+	log.Printf(Cyan("[%s]Create Socket To: %s"), bc.service, bc.addr)
 
 	if err != nil {
-		log.ErrorErrorf(err, "Create Socket Failed: %v, Addr: %s", err, bc.addr)
+		log.ErrorErrorf(err, "[%s]Create Socket Failed: %v, Addr: %s", err, bc.service, bc.addr)
 		// 连接不上，失败
 		return nil, err
 	}
@@ -165,7 +170,7 @@ func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 //
 func (bc *BackendConn) Run() {
 
-	for k := 0; !bc.IsMarkOffline; k++ {
+	for k := 0; !bc.IsMarkOffline.Get(); k++ {
 
 		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 		socket, err := bc.ensureConn()
@@ -353,7 +358,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			return errors.New("Invalid Response")
 		}
 		if bc.verbose {
-			log.Printf("Data From Server, seqId: %d, Request: %d", seqId, req.Request.SeqId)
+			log.Printf("[%s]Data From Server, seqId: %d, Request: %d", r.Service, seqId, req.Request.SeqId)
 		}
 		r = req
 		r.Response.TypeId = typeId
