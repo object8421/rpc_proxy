@@ -1,16 +1,20 @@
 #!/bin/bash
 
-WORKSPACE=$(cd $(dirname $0)/; pwd)
-cd $WORKSPACE
 
-mkdir -p log
+# 由于proxy基本上是每个机器上有一个拷贝，并且和项目无关，因此放在一个固定地方
+BASE_DIR=/usr/local/rpc_proxy/
+mkdir -p ${BASE_DIR}log
 
-module=rpc_proxy
-app=/usr/local/bin/rpc_proxy
-conf=config.ini
-proxy_log=log/proxy.log
-pidfile=log/app_proxy.pid
-logfile=log/app_proxy.log
+cd ${BASE_DIR}
+
+app=${BASE_DIR}bin/rpc_proxy
+conf=${BASE_DIR}config.ini
+
+logfile=${BASE_DIR}log/proxy.log
+pidfile=${BASE_DIR}log/proxy.pid
+stdfile=${BASE_DIR}log/app.log
+
+# sock_file=/var/log/rpc_proxy/rpc_proxy.sock
 
 function check_pid() {
     if [ -f $pidfile ];then
@@ -34,9 +38,10 @@ function start() {
 
     if ! [ -f $conf ];then
         echo "Config file $conf doesn't exist, creating one."
-        cp cfg.example.json $conf
+		exit -1
     fi
-    nohup $app -c $conf -L $proxy_log &> $logfile &
+    
+    nohup $app -c $conf -L $logfile &> $stdfile &
     echo $! > $pidfile
     echo "$app started..., pid=$!"
 }
@@ -64,9 +69,8 @@ function status() {
 }
 
 function tailf() {
-	fs=(`ls -u ${proxy_log}.*`)
-	recent_file=${fs[0]}
-    tail -f $recent_file
+	date=`date +"%Y%m%d"`
+    tail -Fn 200 "${logfile}-${date}"
 }
 
 

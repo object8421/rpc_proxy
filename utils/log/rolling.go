@@ -9,40 +9,67 @@ import (
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 )
 
+//  按天进行Rolling
 type rollingFile struct {
 	mu sync.Mutex
 
-	closed bool
+	logKeepDays     int
+	basePath        string
+	file            *os.File
+	filePath        string
+	nextStartOfDate time.Time
+	closed          bool
+}
 
-	maxFileFrag int
-	maxFragSize int64
+func NewRollingFile(basePath string, logKeepDays int) (io.WriteCloser, error) {
+	if logKeepDays <= 0 {
+		return nil, errors.Errorf("invalid max file-frag = %d", logKeepDays)
+	}
+	if _, file := path.Split(basePath); file == "" {
+		return nil, errors.Errorf("invalid base-path = %s, file name is required", basePath)
+	}
 
-	file     *os.File
-	basePath string
-	filePath string
-	fileFrag int
-	fragSize int64
+	return &rollingFile{
+		logKeepDays:     logKeepDays,
+		basePath:        basePath,
+		nextStartOfDate: nextStartOfDay(time.Now()),
+	}, nil
 }
 
 var ErrClosedRollingFile = errors.New("rolling file is closed")
 
 func (r *rollingFile) roll() error {
 	if r.file != nil {
-		if r.fragSize < r.maxFragSize {
+		// 还没有日期切换
+		now := time.Now()
+		if now.Before(r.nextStartOfDate) {
 			return nil
 		}
 		r.file.Close()
 		r.file = nil
-	}
-	r.fragSize = 0
-	r.fileFrag = (r.fileFrag + 1) % r.maxFileFrag
-	r.filePath = fmt.Sprintf("%s.%d", r.basePath, r.fileFrag)
+		r.nextStartOfDate = nextStartOfDay(now)
 
-	f, err := os.OpenFile(r.filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+		// 将logKeepDays之前几天的日志删除
+		for i := r.logKeepDays; i < r.logKeepDays+4; i++ {
+
+			filePath := fmt.Sprintf("%s-%s", r.basePath, now.AddDate(0, 0, -i).Format("20060102"))
+			_, err := os.Stat(filePath)
+			if os.IsNotExist(err) {
+				os.Remove(filePath)
+			}
+		}
+
+	}
+
+	// 例如: proxy.log-20140101
+	r.filePath = fmt.Sprintf("%s-%s", r.basePath, time.Now().Format("20060102"))
+
+	f, err := os.OpenFile(r.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		return errors.Trace(err)
 	} else {
@@ -80,7 +107,6 @@ func (r *rollingFile) Write(b []byte) (int, error) {
 	}
 
 	n, err := r.file.Write(b)
-	r.fragSize += int64(n)
 	if err != nil {
 		return n, errors.Trace(err)
 	} else {
@@ -88,31 +114,7 @@ func (r *rollingFile) Write(b []byte) (int, error) {
 	}
 }
 
-func NewRollingFile(basePath string, maxFileFrag int, maxFragSize int64) (io.WriteCloser, error) {
-	if maxFileFrag <= 0 {
-		return nil, errors.Errorf("invalid max file-frag = %d", maxFileFrag)
-	}
-	if maxFragSize <= 0 {
-		return nil, errors.Errorf("invalid max frag-size = %d", maxFragSize)
-	}
-	if _, file := path.Split(basePath); file == "" {
-		return nil, errors.Errorf("invalid base-path = %s, file name is required", basePath)
-	}
-
-	var fileFrag = 0
-	for i := 0; i < maxFileFrag; i++ {
-		_, err := os.Stat(fmt.Sprintf("%s.%d", basePath, i))
-		if err != nil && os.IsNotExist(err) {
-			fileFrag = i
-			break
-		}
-	}
-
-	return &rollingFile{
-		maxFileFrag: maxFileFrag,
-		maxFragSize: maxFragSize,
-
-		basePath: basePath,
-		fileFrag: fileFrag - 1,
-	}, nil
+func nextStartOfDay(t time.Time) time.Time {
+	year, month, day := t.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, t.Location()).AddDate(0, 0, 1)
 }

@@ -5,19 +5,19 @@ package proxy
 import (
 	"fmt"
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
-	"git.chunyu.me/infra/rpc_proxy/utils/bytesize"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/docopt/docopt-go"
 	"os"
+	"strconv"
 )
 
-var usage = `usage: %s -c <config_file>[-L <log_file>] [--log-level=<loglevel>] [--log-filesize=<filesize>] 
+var usage = `usage: %s -c <config_file>[-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>] 
 
 options:
    -c <config_file>
    -L	set output log file, default is stdout
    --log-level=<loglevel>	set log level: info, warn, error, debug [default: info]
-   --log-filesize=<maxsize>  set max log file size, suffixes "KB", "MB", "GB" are allowed, 1KB=1024 bytes, etc. Default is 1GB.
+   --log-keep-days=<maxdays>  set max log file keep days, default is 3 days
 `
 
 func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
@@ -34,19 +34,18 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 	// 2. 解析Log相关的配置
 	log.SetLevel(log.LEVEL_INFO)
 
-	var maxFileFrag = 2
-	var maxFragSize int64 = bytesize.GB * 1
-	if s, ok := args["--log-filesize"].(string); ok && s != "" {
-		v, err := bytesize.Parse(s)
+	var maxKeepDays int = 3
+	if s, ok := args["--log-keep-days"].(string); ok && s != "" {
+		v, err := strconv.ParseInt(s, 10, 32)
 		if err != nil {
-			log.PanicErrorf(err, "invalid max log file size = %s", s)
+			log.PanicErrorf(err, "invalid max log file keep days = %s", s)
 		}
-		maxFragSize = v
+		maxKeepDays = int(v)
 	}
 
 	// set output log file
 	if s, ok := args["-L"].(string); ok && s != "" {
-		f, err := log.NewRollingFile(s, maxFileFrag, maxFragSize)
+		f, err := log.NewRollingFile(s, maxKeepDays)
 		if err != nil {
 			log.PanicErrorf(err, "open rolling log file failed: %s", s)
 		} else {

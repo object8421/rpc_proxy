@@ -44,7 +44,7 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 
 	go func() {
 		for !service.stop.Get() {
-			log.Printf(Green("[Report]: %s Current Active Conns: %d"), service.serviceName, service.Active())
+			log.Printf(Green("[Report]: %s --> %d backservice"), service.serviceName, service.Active())
 			time.Sleep(time.Second * 10)
 		}
 	}()

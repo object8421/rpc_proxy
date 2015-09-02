@@ -84,7 +84,7 @@ func (s *BackServiceLB) run() {
 	go func() {
 		// 定时汇报当前的状态
 		for true {
-			log.Printf(Green("[Report]: %s Current Active Conns: %d"),
+			log.Printf(Green("[Report]: %s --> %d workers"),
 				s.serviceName, s.Active())
 			time.Sleep(time.Second * 10)
 		}
@@ -151,7 +151,7 @@ func (s *BackServiceLB) run() {
 				s.activeConns = append(s.activeConns, conn)
 				s.activeConnsLock.Unlock()
 
-				log.Printf(Green("Current Active Conns: %d"), conn.Index)
+				log.Printf(Green("%s --> %d workers"), s.serviceName, conn.Index)
 			} else {
 				panic("Invalid Socket Type")
 			}

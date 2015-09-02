@@ -1,16 +1,19 @@
 #!/bin/bash
 
+# control_lb脚本必须和具体的产品项目放在一起
 WORKSPACE=$(cd $(dirname $0)/; pwd)
 cd $WORKSPACE
-
+# 确保log目录存在(相对产品放在一起)
 mkdir -p log
-
-module=rpc_proxy
-app=/usr/local/bin/rpc_lb
 conf=config.ini
-proxy_log=log/lb.log
+logfile=log/lb.log
 pidfile=log/app_lb.pid
-logfile=log/app_lb.log
+stdfile=log/app_lb.log
+
+
+BASE_DIR=/usr/local/rpc_proxy/
+app=${BASE_DIR}bin/rpc_lb
+
 
 function check_pid() {
     if [ -f $pidfile ];then
@@ -36,7 +39,7 @@ function start() {
         echo "Config file $conf doesn't exist, creating one."
         exit(-1)
     fi
-    nohup $app -c $conf -L $proxy_log &> $logfile &
+    nohup $app -c $conf -L $logfile &> $stdfile &
     echo $! > $pidfile
     echo "$app started..., pid=$!"
 }
@@ -44,6 +47,7 @@ function start() {
 function stop() {
 	check_pid
 	running=$?
+	# 由于lb等需要graceful stop, 因此stop过程需要等待
 	if [ $running -gt 0 ];then
 	    pid=`cat $pidfile`
 		kill -15 $pid
@@ -66,6 +70,7 @@ function restart() {
     start
 }
 
+# 查看当前的进程的状态
 function status() {
     check_pid
     running=$?
@@ -76,10 +81,10 @@ function status() {
     fi
 }
 
+# 查看最新的Log文件
 function tailf() {
-	fs=(`ls -t ${proxy_log}.*`)
-	recent_file=${fs[0]}
-	tail -Fn 100 $recent_file
+	date=`date +"%Y%m%d"`
+    tail -Fn 200 "${logfile}-${date}"	
 }
 
 

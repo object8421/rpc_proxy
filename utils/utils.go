@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 	"unsafe"
 
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
@@ -142,4 +143,23 @@ func Copy(s string) string {
 	h.Cap = len(s)
 
 	return string(b)
+}
+
+// 判断给定的文件是否存在
+func FileExist(file string) bool {
+	var err error
+	_, err = os.Stat(file)
+	return !os.IsNotExist(err)
+}
+
+// 获取给定的日期的"开始时刻", 00:00:00
+func StartOfDay(t time.Time) time.Time {
+	year, month, day := t.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+}
+
+// 第二天的开始时间
+func NextStartOfDay(t time.Time) time.Time {
+	year, month, day := t.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, t.Location()).AddDate(0, 0, 1)
 }
