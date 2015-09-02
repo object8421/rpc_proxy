@@ -163,7 +163,6 @@ class RpcWorker(object):
                 else:
                     self.last_request_time = time.time()
                     self.task_pool.spawn(self.handle_request, proto_input, queue)
-                    # self.handle_request(frame, queue)
             except TTransportException as e:
                 # EOF是很正常的现象
                 if e.type != TTransportException.END_OF_FILE:
