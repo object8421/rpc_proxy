@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
-from thrift.protocol.TBinaryProtocol import TBinaryProtocol
+
 from thrift.protocol.TMultiplexedProtocol import TMultiplexedProtocol
 from thrift.transport.TSocket import TSocket
 from thrift.transport.TTransport import TFramedTransport
+
+from rpc_thrift.protocol import TUtf8BinaryProtocol
 from rpc_thrift.transport import TAutoConnectSocket
+
 
 
 # Client目前只考虑单线程的情况, 如果是多线程，或者coroutine可能需要使用pool
 _base_protocol = None
-def get_base_protocol(endpoint, timeout=2000, frame_trans=None):
+def get_base_protocol(endpoint, timeout=5000, frame_trans=None):
     global _base_protocol
     if not _base_protocol:
         if endpoint.find(":") != -1:
@@ -28,11 +31,11 @@ def get_base_protocol(endpoint, timeout=2000, frame_trans=None):
 
         frame_trans = frame_trans or TFramedTransport
         transport = frame_trans(socket)
-        _base_protocol = TBinaryProtocol(transport)
+        _base_protocol = TUtf8BinaryProtocol(transport)
     return _base_protocol
 
 
-def get_base_protocol_4_pool(endpoint, timeout=2000):
+def get_base_protocol_4_pool(endpoint, timeout=5000, frame_trans=None):
     if endpoint.find(":") != -1:
         hostport = endpoint.split(":")
         host = hostport[0]
@@ -46,8 +49,9 @@ def get_base_protocol_4_pool(endpoint, timeout=2000):
     socket.setTimeout(timeout)
     socket = TAutoConnectSocket(socket)
 
-    transport = TFramedTransport(socket)
-    return TBinaryProtocol(transport)
+    frame_trans = frame_trans or TFramedTransport
+    transport = frame_trans(socket)
+    return TUtf8BinaryProtocol(transport)
 
 
 def get_service_protocol(service, base_protocol=None):
