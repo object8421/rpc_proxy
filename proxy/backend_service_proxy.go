@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"sync"
@@ -21,8 +22,11 @@ type BackService struct {
 	currentConnIndex int
 
 	// 用于zk的状态管理(记录当前有效的Conn)
-	addr2Conn map[string]*BackendConn
-	verbose   bool
+	addr2Conn       map[string]*BackendConn
+	verbose         bool
+	stop            atomic2.Bool
+	lastRequestTime atomic2.Int64
+	evtbus          chan interface{}
 }
 
 // 创建一个BackService
@@ -39,7 +43,7 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 	service.WatchBackServiceNodes()
 
 	go func() {
-		for true {
+		for !service.stop.Get() {
 			log.Printf(Green("[Report]: %s Current Active Conns: %d"), service.serviceName, service.Active())
 			time.Sleep(time.Second * 10)
 		}
@@ -47,6 +51,28 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 
 	return service
 
+}
+
+func (s *BackService) Stop() {
+	// 标志停止
+	s.stop.Set(true)
+	// 触发一个事件（之后ServiceNodes也不再监控)
+	s.evtbus <- true
+	go func() {
+		// TODO:
+		for true {
+			now := time.Now().Unix()
+			if now-s.lastRequestTime.Get() > 10 {
+				break
+			} else {
+				time.Sleep(time.Second)
+			}
+		}
+		for len(s.activeConns) > 0 {
+			s.activeConns[0].MarkOffline()
+		}
+
+	}()
 }
 
 func (s *BackService) Active() int {
@@ -57,12 +83,12 @@ func (s *BackService) Active() int {
 // 如何处理后端服务的变化呢?
 //
 func (s *BackService) WatchBackServiceNodes() {
-	var evtbus chan interface{} = make(chan interface{}, 2)
+	s.evtbus = make(chan interface{}, 2)
 	servicePath := s.topo.ProductServicePath(s.serviceName)
 
 	go func() {
-		for true {
-			serviceIds, err := s.topo.WatchChildren(servicePath, evtbus)
+		for !s.stop.Get() {
+			serviceIds, err := s.topo.WatchChildren(servicePath, s.evtbus)
 
 			if err == nil {
 				// 如何监听endpoints的变化呢?
@@ -86,11 +112,11 @@ func (s *BackService) WatchBackServiceNodes() {
 
 				for addr, _ := range addressMap {
 					conn, ok := s.addr2Conn[addr]
-					if ok && !conn.IsMarkOffline {
+					if ok && !conn.IsMarkOffline.Get() {
 						continue
 					} else {
 						// 创建新的连接（心跳成功之后就自动加入到 s.activeConns 中
-						s.addr2Conn[addr] = NewBackendConn(addr, s, s.verbose)
+						s.addr2Conn[addr] = NewBackendConn(addr, s, s.serviceName, s.verbose)
 					}
 				}
 
@@ -105,7 +131,7 @@ func (s *BackService) WatchBackServiceNodes() {
 				}
 
 				// 等待事件
-				<-evtbus
+				<-s.evtbus
 			} else {
 				log.WarnErrorf(err, "zk read failed: %s", servicePath)
 				// 如果读取失败则，则继续等待5s
@@ -142,6 +168,8 @@ func (s *BackService) NextBackendConn() *BackendConn {
 func (s *BackService) HandleRequest(req *Request) (err error) {
 	backendConn := s.NextBackendConn()
 
+	s.lastRequestTime.Set(time.Now().Unix())
+
 	if backendConn == nil {
 		// 没有后端服务
 		if s.verbose {
@@ -162,22 +190,25 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 }
 
 func (s *BackService) StateChanged(conn *BackendConn) {
-	log.Printf(Green("StateChanged: %s, Index: %d, Count: %d, IsConnActive: %t"),
-		conn.addr, conn.Index, len(s.activeConns), conn.IsConnActive)
+	log.Printf(Green("[%s]StateChanged: %s, Index: %d, Count: %d, IsConnActive: %t"),
+		s.serviceName, conn.addr, conn.Index, len(s.activeConns), conn.IsConnActive)
 
 	s.activeConnsLock.Lock()
 	defer s.activeConnsLock.Unlock()
 
-	if conn.IsConnActive {
-		log.Printf(Green("MarkConnActiveOK: %s, Index: %d, Count: %d"), conn.addr, conn.Index, len(s.activeConns))
+	if conn.IsConnActive.Get() {
+		log.Printf(Green("[%s]MarkConnActiveOK: %s, Index: %d, Count: %d"),
+			s.serviceName, conn.addr, conn.Index, len(s.activeConns))
 
 		if conn.Index == INVALID_ARRAY_INDEX {
 			conn.Index = len(s.activeConns)
-			log.Printf(Green("Add BackendConn to activeConns: %s, Total Actives: %d"), conn.Addr(), conn.Index)
+			log.Printf(Green("[%s]Add BackendConn to activeConns: %s, Total Actives: %d"),
+				s.serviceName, conn.Addr(), conn.Index)
 			s.activeConns = append(s.activeConns, conn)
 		}
 	} else {
-		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d"), conn.Addr(), conn.Index)
+		log.Printf(Red("[%s]Remove BackendConn From activeConns: %s, Index: %d"),
+			s.serviceName, conn.Addr(), conn.Index)
 		if conn.Index != INVALID_ARRAY_INDEX {
 			lastIndex := len(s.activeConns) - 1
 
@@ -194,7 +225,8 @@ func (s *BackService) StateChanged(conn *BackendConn) {
 
 			// slice
 			s.activeConns = s.activeConns[0:lastIndex]
-			log.Printf(Red("Remove BackendConn From activeConns: %s, Remains: %d"), conn.Addr(), len(s.activeConns))
+			log.Printf(Red("[%s]Remove BackendConn From activeConns: %s, Remains: %d"),
+				s.serviceName, conn.Addr(), len(s.activeConns))
 		}
 	}
 }

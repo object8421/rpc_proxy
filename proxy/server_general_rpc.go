@@ -65,8 +65,8 @@ func GetServiceIdentity(frontendAddr string) string {
 //
 // 去ZK注册当前的Service
 //
-func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topology,
-	evtExit chan interface{}) *ServiceEndpoint {
+func RegisterService(serviceName, frontendAddr, serviceId string,
+	topo *zk.Topology, evtExit chan interface{}) *ServiceEndpoint {
 
 	// 1. 准备数据
 	// 记录Service Endpoint的信息
@@ -78,6 +78,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 	// 2. 将信息添加到Zk中, 并且监控Zk的状态(如果添加失败会怎么样?)
 	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr)
 
+	// 为了保证Add是干净的，需要先删除，保证自己才是Owner
 	endpoint.DeleteServiceEndpoint(topo)
 	endpoint.AddServiceEndpoint(topo)
 
@@ -94,8 +95,10 @@ func RegisterService(serviceName, frontendAddr, serviceId string, topo *zk.Topol
 					return
 				case e := <-evtbus:
 					event := e.(topozk.Event)
-					if event.State == topozk.StateExpired || event.Type == topozk.EventNotWatching {
-						// Session过期了，则需要删除之前的数据，因为当前的session不是之前的数据的Owner
+					if event.State == topozk.StateExpired ||
+						event.Type == topozk.EventNotWatching {
+						// Session过期了，则需要删除之前的数据，
+						// 因为当前的session不是之前的数据的Owner
 						endpoint.DeleteServiceEndpoint(topo)
 						endpoint.AddServiceEndpoint(topo)
 
@@ -157,11 +160,7 @@ func (p *ThriftRpcServer) Run() {
 	evtExit := make(chan interface{})
 	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, p.Topo, evtExit)
 
-	//	var suideTime time.Time
-
-	//	isAlive := true
-
-	// 3. 读取后端服务的配置
+	// 3. 读取"前端"的配置
 	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
 	if err != nil {
 		log.ErrorErrorf(err, Red("Server Socket Create Failed: %v"), err)
@@ -183,6 +182,7 @@ func (p *ThriftRpcServer) Run() {
 	// 强制退出? TODO: Graceful退出
 	go func() {
 		<-exitSignal
+		evtExit <- true
 		log.Info(Magenta("Receive Exit Signals...."))
 		endpoint.DeleteServiceEndpoint(p.Topo)
 
@@ -224,7 +224,7 @@ func (p *ThriftRpcServer) Run() {
 	for {
 		c, err := transport.Accept()
 		if err != nil {
-			return
+			break
 		} else {
 			ch <- c
 		}
