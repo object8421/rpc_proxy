@@ -158,7 +158,7 @@ func (bc *BackendConn) ensureConn() (transport thrift.TTransport, err error) {
 	// 2. 只要服务存在，一般不会出现err
 	sleepInterval := 1
 	err = transport.Open()
-	for err != nil {
+	for err != nil && !bc.IsMarkOffline.Get() {
 		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s", err, bc.addr)
 		time.Sleep(time.Duration(sleepInterval) * time.Second)
 

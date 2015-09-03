@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/c4pt0r/cfg"
+	"os"
+	"path"
 	"strings"
 )
 
@@ -96,6 +98,11 @@ func LoadConf(configFile string) (*Config, error) {
 
 	conf.FrontSock, _ = c.ReadString("front_sock", "")
 	conf.FrontSock = strings.TrimSpace(conf.FrontSock)
+	// 配置文件中使用的是相对路径，在注册到zk时，需要还原成为绝对路径
+	if len(conf.FrontSock) > 0 {
+		dir, _ := os.Getwd()
+		conf.FrontSock = path.Clean(path.Join(dir, conf.FrontSock))
+	}
 
 	conf.IpPrefix, _ = c.ReadString("ip_prefix", "")
 	conf.IpPrefix = strings.TrimSpace(conf.IpPrefix)
