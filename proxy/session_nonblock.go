@@ -8,6 +8,7 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"sync"
 	"time"
 )
 
@@ -95,7 +96,7 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		defer func() {
 			// 出现错误了，直接关闭Session
 			s.Close()
-			for _ = range tasks {
+			for _ = range tasks { // close(tasks)关闭for loop
 			}
 		}()
 		if err := s.loopWriter(tasks); err != nil {
@@ -103,24 +104,28 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		}
 	}()
 
-	defer close(tasks)
-
+	var wait sync.WaitGroup
 	for true {
 		// Reader不停地解码， 将Request
 		request, err := s.ReadFrame()
 
 		if err != nil {
 			errlist.PushBack(err)
-			return
+			break
 		}
 
+		wait.Add(1)
 		go func() {
 			// 异步执行
 			r, _ := s.handleRequest(request, d)
 			//			log.Info("Succeed Get Result")
 			tasks <- r
+			wait.Done()
 		}()
 	}
+	// 等待go func执行完毕
+	wait.Wait()
+	close(tasks)
 	return
 }
 
