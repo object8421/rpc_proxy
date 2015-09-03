@@ -3,7 +3,7 @@
 package proxy
 
 import (
-	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,9 +139,14 @@ func (bc *BackendConn) PushBack(r *Request) {
 //
 // 确保Socket成功连接到后端服务器
 //
-func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
+func (bc *BackendConn) ensureConn() (transport thrift.TTransport, err error) {
 	// 1. 创建连接(只要IP没有问题， err一般就是空)
-	socket, err = thrift.NewTSocketTimeout(bc.addr, time.Second*5)
+	timeout := time.Second * 5
+	if strings.Contains(bc.addr, ":") {
+		transport, err = thrift.NewTSocketTimeout(bc.addr, timeout)
+	} else {
+		transport, err = NewTUnixDomainTimeout(bc.addr, timeout)
+	}
 	log.Printf(Cyan("[%s]Create Socket To: %s"), bc.service, bc.addr)
 
 	if err != nil {
@@ -152,7 +157,7 @@ func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 
 	// 2. 只要服务存在，一般不会出现err
 	sleepInterval := 1
-	err = socket.Open()
+	err = transport.Open()
 	for err != nil {
 		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s", err, bc.addr)
 		time.Sleep(time.Duration(sleepInterval) * time.Second)
@@ -160,9 +165,9 @@ func (bc *BackendConn) ensureConn() (socket *thrift.TSocket, err error) {
 		if sleepInterval < 8 {
 			sleepInterval *= 2
 		}
-		err = socket.Open()
+		err = transport.Open()
 	}
-	return socket, err
+	return transport, err
 }
 
 //
@@ -173,13 +178,13 @@ func (bc *BackendConn) Run() {
 	for k := 0; !bc.IsMarkOffline.Get(); k++ {
 
 		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
-		socket, err := bc.ensureConn()
+		transport, err := bc.ensureConn()
 		if err != nil {
 			log.ErrorErrorf(err, "BackendConn#ensureConn error: %v", err)
 			return
 		}
 
-		c := NewTBufferedFramedTransport(socket, 100*time.Microsecond, 20)
+		c := NewTBufferedFramedTransport(transport, 100*time.Microsecond, 20)
 
 		// 2. 将 bc.input 中的请求写入 后端的Rpc Server
 		err = bc.loopWriter(c) // 同步
@@ -240,9 +245,9 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
 		// 请求正常转发给后端的Rpc Server
 		var flush = len(bc.input) == 0
-		if bc.verbose {
-			fmt.Printf("Force flush %t", flush)
-		}
+		//		if bc.verbose {
+		//			fmt.Printf("Force flush %t", flush)
+		//		}
 
 		// 1. 替换新的SeqId
 		r.ReplaceSeqId(bc.currentSeqId)
@@ -312,9 +317,19 @@ func (bc *BackendConn) flushRequests(err error) {
 	seqRequest := bc.seqNum2Request
 	bc.seqNum2Request = make(map[int32]*Request, 4096)
 	bc.Unlock()
-
+	threshold := time.Now().Add(-time.Second * 5)
 	for _, request := range seqRequest {
-		log.Printf(Red("Handle Failed Request: %s %s"), request.Service, request.Request.Name)
+		if request.Start > 0 {
+			t := time.Unix(request.Start, 0)
+			if t.After(threshold) {
+				// 似乎在笔记本上，合上显示器之后出出现网络错误
+				log.Printf(Red("Handle Failed Request: %s %s, Started: %s"),
+					request.Service, request.Request.Name, FormatYYYYmmDDHHMMSS(t))
+			}
+		} else {
+			log.Printf(Red("Handle Failed Request: %s %s"), request.Service,
+				request.Request.Name)
+		}
 		request.Response.Err = err
 		if request.Wait != nil {
 			request.Wait.Done()
@@ -358,7 +373,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			return errors.New("Invalid Response")
 		}
 		if bc.verbose {
-			log.Printf("[%s]Data From Server, seqId: %d, Request: %d", r.Service, seqId, req.Request.SeqId)
+			log.Printf("[%s]Data From Server, seqId: %d, Request: %d", req.Service, seqId, req.Request.SeqId)
 		}
 		r = req
 		r.Response.TypeId = typeId

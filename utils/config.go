@@ -19,6 +19,7 @@ type Config struct {
 
 	FrontHost    string
 	FrontPort    string
+	FrontSock    string
 	FrontendAddr string
 	IpPrefix     string
 
@@ -33,6 +34,10 @@ type Config struct {
 // 通过参数依赖，保证getFrontendAddr的调用位置（必须等待Host, IpPrefix, Port读取完毕之后)
 //
 func (conf *Config) getFrontendAddr(frontHost, ipPrefix, frontPort string) string {
+	if conf.FrontSock != "" {
+		return conf.FrontSock
+	}
+
 	var frontendAddr = ""
 	// 如果没有指定FrontHost, 则自动根据 IpPrefix来进行筛选，
 	// 例如: IpPrefix: 10., 那么最终内网IP： 10.4.10.2之类的被选中
@@ -88,6 +93,9 @@ func LoadConf(configFile string) (*Config, error) {
 
 	conf.FrontPort, _ = c.ReadString("front_port", "")
 	conf.FrontPort = strings.TrimSpace(conf.FrontPort)
+
+	conf.FrontSock, _ = c.ReadString("front_sock", "")
+	conf.FrontSock = strings.TrimSpace(conf.FrontSock)
 
 	conf.IpPrefix, _ = c.ReadString("ip_prefix", "")
 	conf.IpPrefix = strings.TrimSpace(conf.IpPrefix)

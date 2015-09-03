@@ -6,4 +6,5 @@ const (
 	BACKEND_CONN_MAX_SEQ_ID = 100000
 	INVALID_ARRAY_INDEX     = -1 // 无效的数组元素下标
 	HB_TIMEOUT              = 6  // 心跳超时时间间隔
+	TEST_PRODUCT_NAME       = "test"
 )

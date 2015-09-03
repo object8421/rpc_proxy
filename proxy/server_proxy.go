@@ -48,6 +48,7 @@ func (p *ProxyServer) Run() {
 	var transport thrift.TServerTransport
 	var err error
 
+	log.Printf(Magenta("Start Proxy at Address: %s"), p.proxyAddr)
 	// 读取后端服务的配置
 	isUnixDomain := false
 	if !strings.Contains(p.proxyAddr, ":") {

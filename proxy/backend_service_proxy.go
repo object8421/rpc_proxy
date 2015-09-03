@@ -6,6 +6,7 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,6 +15,7 @@ import (
 // Proxy中用来和后端服务通信的模块
 //
 type BackService struct {
+	productName string
 	serviceName string
 	topo        *zk.Topology
 
@@ -30,9 +32,10 @@ type BackService struct {
 }
 
 // 创建一个BackService
-func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackService {
+func NewBackService(productName string, serviceName string, topo *zk.Topology, verbose bool) *BackService {
 
 	service := &BackService{
+		productName: productName,
 		serviceName: serviceName,
 		activeConns: make([]*BackendConn, 0, 10),
 		addr2Conn:   make(map[string]*BackendConn),
@@ -44,7 +47,7 @@ func NewBackService(serviceName string, topo *zk.Topology, verbose bool) *BackSe
 
 	go func() {
 		for !service.stop.Get() {
-			log.Printf(Green("[Report]: %s --> %d backservice"), service.serviceName, service.Active())
+			log.Printf(Blue("[Report]: %s --> %d backservice"), service.serviceName, service.Active())
 			time.Sleep(time.Second * 10)
 		}
 	}()
@@ -94,8 +97,6 @@ func (s *BackService) WatchBackServiceNodes() {
 				// 如何监听endpoints的变化呢?
 				addressMap := make(map[string]bool, len(serviceIds))
 
-				nowStr := FormatYYYYmmDDHHMMSS(time.Now())
-
 				for _, serviceId := range serviceIds {
 					log.Printf(Green("---->Find Endpoint: %s for Service: %s"), serviceId, s.serviceName)
 					endpointInfo, err := GetServiceEndpoint(s.topo, s.serviceName, serviceId)
@@ -104,9 +105,15 @@ func (s *BackService) WatchBackServiceNodes() {
 						log.ErrorErrorf(err, "Service Endpoint Read Error: %v\n", err)
 					} else {
 
-						log.Printf(Green("---->Add endpoint %s To Service %s @ %s"),
-							endpointInfo.Frontend, s.serviceName, nowStr)
-						addressMap[endpointInfo.Frontend] = true
+						log.Printf(Green("---->Add endpoint %s To Service %s"),
+							endpointInfo.Frontend, s.serviceName)
+
+						if strings.Contains(endpointInfo.Frontend, ":") {
+							addressMap[endpointInfo.Frontend] = true
+						} else if s.productName == TEST_PRODUCT_NAME {
+							// unix domain socket只在测试的时候可以使用(因为不能实现跨机器访问）
+							addressMap[endpointInfo.Frontend] = true
+						}
 					}
 				}
 
@@ -190,21 +197,23 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 }
 
 func (s *BackService) StateChanged(conn *BackendConn) {
-	log.Printf(Green("[%s]StateChanged: %s, Index: %d, Count: %d, IsConnActive: %t"),
-		s.serviceName, conn.addr, conn.Index, len(s.activeConns), conn.IsConnActive)
+	log.Printf(Cyan("[%s]StateChanged: %s, Index: %d, Count: %d, IsConnActive: %t"),
+		s.serviceName, conn.addr, conn.Index, len(s.activeConns),
+		conn.IsConnActive.Get())
 
 	s.activeConnsLock.Lock()
 	defer s.activeConnsLock.Unlock()
 
 	if conn.IsConnActive.Get() {
-		log.Printf(Green("[%s]MarkConnActiveOK: %s, Index: %d, Count: %d"),
+		log.Printf(Cyan("[%s]MarkConnActiveOK: %s, Index: %d, Count: %d"),
 			s.serviceName, conn.addr, conn.Index, len(s.activeConns))
 
 		if conn.Index == INVALID_ARRAY_INDEX {
 			conn.Index = len(s.activeConns)
-			log.Printf(Green("[%s]Add BackendConn to activeConns: %s, Total Actives: %d"),
-				s.serviceName, conn.Addr(), conn.Index)
 			s.activeConns = append(s.activeConns, conn)
+
+			log.Printf(Green("[%s]Add BackendConn to activeConns: %s, Total Actives: %d"),
+				s.serviceName, conn.Addr(), len(s.activeConns))
 		}
 	} else {
 		log.Printf(Red("[%s]Remove BackendConn From activeConns: %s, Index: %d"),
