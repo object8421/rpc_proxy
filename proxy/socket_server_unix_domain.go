@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -54,6 +55,16 @@ func (p *TServerUnixDomain) Listen() error {
 		return err
 	}
 	p.listener = l
+
+	fmt.Println(p.addr.Network(), p.addr.String())
+
+	// 注意: 该Socket需要给所有需要访问该接口的人以读写的权限
+	// 因此最终的 sock文件的权限为: 0777
+	// 例如: aa.sock root/root 07777
+	//      换一个用户，rm aa.sock 似乎无效
+	filePath := p.addr.String()
+	os.Chmod(filePath, os.ModePerm)
+
 	return nil
 }
 
