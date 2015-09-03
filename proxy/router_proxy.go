@@ -12,6 +12,7 @@ import (
 )
 
 type Router struct {
+	productName string
 	serviceLock sync.RWMutex
 	services    map[string]*BackService
 	topo        *zk.Topology
@@ -20,9 +21,10 @@ type Router struct {
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
 	r := &Router{
-		services: make(map[string]*BackService),
-		topo:     topo,
-		verbose:  verbose,
+		productName: productName,
+		services:    make(map[string]*BackService),
+		topo:        topo,
+		verbose:     verbose,
 	}
 
 	// 监控服务的变化
@@ -66,7 +68,7 @@ func (bk *Router) WatchServices() {
 				oldServices := bk.services
 				bk.services = make(map[string]*BackService, len(services))
 				for _, service := range services {
-					log.Println("Found Service: ", service)
+					log.Println("Found Service: ", Magenta(service))
 
 					back, ok := oldServices[service]
 					if ok {
@@ -98,7 +100,7 @@ func (bk *Router) WatchServices() {
 	}()
 
 	// 读取zk, 等待
-	log.Println("ProductName: ", bk.topo.ProductName)
+	log.Println("ProductName: ", Magenta(bk.topo.ProductName))
 }
 
 // 添加一个后台服务(非线程安全)
@@ -106,7 +108,7 @@ func (bk *Router) addBackService(service string) {
 
 	backService, ok := bk.services[service]
 	if !ok {
-		backService = NewBackService(service, bk.topo, bk.verbose)
+		backService = NewBackService(bk.productName, service, bk.topo, bk.verbose)
 		bk.services[service] = backService
 	}
 

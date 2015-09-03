@@ -11,6 +11,7 @@ import (
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -77,20 +78,31 @@ func (p *ThriftLoadBalanceServer) Run() {
 	//	isAlive := true
 
 	// 3. 读取后端服务的配置
-	transport, err := thrift.NewTServerSocket(p.frontendAddr)
+	var transport thrift.TServerTransport
+	var err error
+
+	isUnixDomain := false
+	// 127.0.0.1:9999(以:区分不同的类型)
+	if !strings.Contains(p.frontendAddr, ":") {
+		if FileExist(p.frontendAddr) {
+			os.Remove(p.frontendAddr)
+		}
+		transport, err = NewTServerUnixDomain(p.frontendAddr)
+		isUnixDomain = true
+	} else {
+		transport, err = thrift.NewTServerSocket(p.frontendAddr)
+	}
+
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
 		panic(fmt.Sprintf("Invalid FrontendAddress: %s", p.frontendAddr))
 	}
 
-	err = transport.Open()
+	err = transport.Listen()
 	if err != nil {
 		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
 		panic(fmt.Sprintf("Binding Error FrontendAddress: %s", p.frontendAddr))
 	}
-
-	// 开始监听
-	transport.Listen()
 
 	ch := make(chan thrift.TTransport, 4096)
 	defer close(ch)
@@ -126,10 +138,14 @@ func (p *ThriftLoadBalanceServer) Run() {
 		var address string
 		for c := range ch {
 			// 为每个Connection建立一个Session
-			socket, ok := c.(*thrift.TSocket)
+			socket, ok := c.(SocketAddr)
 
 			if ok {
-				address = socket.Addr().String()
+				if isUnixDomain {
+					address = p.frontendAddr
+				} else {
+					address = socket.Addr().String()
+				}
 			} else {
 				address = "unknow"
 			}

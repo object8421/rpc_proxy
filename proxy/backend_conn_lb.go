@@ -3,7 +3,6 @@
 package proxy
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -198,7 +197,7 @@ func (bc *BackendConnLB) loopWriter() error {
 			}
 		}
 		var flush = len(bc.input) == 0
-		fmt.Printf("Force flush %t\n", flush)
+		//		fmt.Printf("Force flush %t\n", flush)
 
 		// 1. 替换新的SeqId
 		r.ReplaceSeqId(bc.currentSeqId)

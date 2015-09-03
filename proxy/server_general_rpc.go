@@ -54,12 +54,17 @@ func NewThriftRpcServer(config *utils.Config, processor thrift.TProcessor) *Thri
 //
 // 根据前端的地址生成服务的id
 // 例如: 127.0.0.1:5555 --> 127_0_0_1_5555
-//
+// "/Users/feiwang/gowork/src/git.chunyu.me/infra/iplocation/aa.sock"
 func GetServiceIdentity(frontendAddr string) string {
+
 	fid := strings.Replace(frontendAddr, ".", "_", -1)
 	fid = strings.Replace(fid, ":", "_", -1)
-	fid = strings.Replace(fid, "//", "", -1)
+	fid = strings.Replace(fid, "/", "", -1)
+	if len(fid) > 20 { // unix domain socket
+		fid = fid[len(fid)-20 : len(fid)]
+	}
 	return fid
+
 }
 
 //
@@ -161,20 +166,31 @@ func (p *ThriftRpcServer) Run() {
 	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, p.Topo, evtExit)
 
 	// 3. 读取"前端"的配置
-	transport, err := thrift.NewTServerSocket(p.FrontendAddr)
+	var transport thrift.TServerTransport
+	var err error
+
+	isUnixDomain := false
+	// 127.0.0.1:9999(以:区分不同的类型)
+	if !strings.Contains(p.FrontendAddr, ":") {
+		if FileExist(p.FrontendAddr) {
+			os.Remove(p.FrontendAddr)
+		}
+		transport, err = NewTServerUnixDomain(p.FrontendAddr)
+		isUnixDomain = true
+	} else {
+		transport, err = thrift.NewTServerSocket(p.FrontendAddr)
+	}
+
 	if err != nil {
 		log.ErrorErrorf(err, Red("Server Socket Create Failed: %v"), err)
 		panic(fmt.Sprintf("Invalid FrontendAddr: %s", p.FrontendAddr))
 	}
 
-	err = transport.Open()
+	err = transport.Listen()
 	if err != nil {
 		log.ErrorErrorf(err, Red("Server Socket Open Failed: %v"), err)
 		panic(fmt.Sprintf("Server Socket Open Failed: %s", p.FrontendAddr))
 	}
-
-	// 开始监听
-	transport.Listen()
 
 	ch := make(chan thrift.TTransport, 4096)
 	defer close(ch)
@@ -207,10 +223,14 @@ func (p *ThriftRpcServer) Run() {
 		var address string
 		for c := range ch {
 			// 为每个Connection建立一个Session
-			socket, ok := c.(*thrift.TSocket)
+			socket, ok := c.(SocketAddr)
 
 			if ok {
-				address = socket.Addr().String()
+				if isUnixDomain {
+					address = p.FrontendAddr
+				} else {
+					address = socket.Addr().String()
+				}
 			} else {
 				address = "unknow"
 			}
