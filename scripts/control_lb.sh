@@ -37,7 +37,7 @@ function start() {
 
     if ! [ -f $conf ];then
         echo "Config file $conf doesn't exist, creating one."
-        exit(-1)
+        exit -1
     fi
     nohup $app -c $conf -L $logfile &> $stdfile &
     echo $! > $pidfile
