@@ -135,7 +135,8 @@ s = RpcWorker(processor, endpoint, pool_size=worker_pool_size, service=service)
 s.connect(endpoint)
 s.run()
 ```
-
+## 系统架构
+![architecture](doc/rpc_architecture.jpg)
 ## 运维部署
 * 编译:
 	* go build git.chunyu.me/infra/rpc_proxy/cmd/rpc_lb.go
