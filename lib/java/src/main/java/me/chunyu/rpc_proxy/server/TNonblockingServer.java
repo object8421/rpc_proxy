@@ -1,17 +1,18 @@
 package me.chunyu.rpc_proxy.server;
 
 
-import org.apache.thrift.server.TServerEventHandler;
-import org.apache.thrift.transport.TNonblockingServerTransport;
-import org.apache.thrift.transport.TServerTransport;
-import org.apache.thrift.transport.TTransportException;
+import org.apache.thrift.TByteArrayOutputStream;
+import org.apache.thrift.TException;
+import org.apache.thrift.TProcessor;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.transport.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 
 /**
@@ -22,58 +23,63 @@ public class TNonblockingServer implements RequestHandler {
     protected final Logger LOGGER = LoggerFactory.getLogger(getClass().getName());
 
     // 控制client最大允许分配的内存(如果不控制，很容易就OOM)
-    final long MAX_READ_BUFFER_BYTES;
+    final int MAX_READ_BUFFER_BYTES;
 
-    /**
-     * How many bytes are currently allocated to read buffers.
-     */
-    final AtomicLong readBufferBytesAllocated = new AtomicLong(0);
+    /** 是否正在对外启动服务 */
     private boolean isServing;
-    protected TServerEventHandler eventHandler_;
-    protected TServerTransport serverTransport_;
 
-    private final ExecutorService invoker;
-    private final int stopTimeoutVal;
+    protected TServerTransport serverTransport;
 
+    private ExecutorService invoker;
+    private int stopTimeoutVal;
+
+    private final TProcessor processor;
     // int workerThreads = 5, int stopTimeoutVal = 60, TimeUnit stopTimeoutUnit = TimeUnit.SECONDS, ExecutorService executorService = null
-    public TNonblockingServer(int workerThreads, int stopTimeoutVal) {
+    public TNonblockingServer(TProcessor processor) {
         MAX_READ_BUFFER_BYTES = 64 * 1024 * 1024;
 
+
+        this.processor = processor;
+
+
+    }
+
+    public TServerTransport getServerTransport() {
+        return serverTransport;
+    }
+
+    public void setServerTransport(TServerTransport serverTransport) {
+        this.serverTransport = serverTransport;
+    }
+
+    public void setUp(int workerThreads, int stopTimeoutVal) {
         this.stopTimeoutVal = stopTimeoutVal;
         LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<Runnable>();
-        invoker = new ThreadPoolExecutor(workerThreads, workerThreads, stopTimeoutVal, TimeUnit.SECONDS, queue);
+        this.invoker = new ThreadPoolExecutor(workerThreads, workerThreads, stopTimeoutVal,
+                TimeUnit.SECONDS, queue);
     }
-
-    public boolean isServing() {
-        return this.isServing;
-    }
-
-    protected void setServing(boolean serving) {
-        this.isServing = serving;
-    }
-
-    /**
-     * Begin accepting connections and processing invocations.
-     */
     public void serve() {
-        // start any IO threads
+        // 1. 启动 I/O Threads
         if (!startThreads()) {
             return;
         }
 
-        // start listening, or exit
+        // 2. 监听端口
         if (!startListening()) {
             return;
         }
 
+        // 3.  标记服务开始运行
+        //     可以配合zk进行服务注册
         setServing(true);
 
-        // this will block while we serve
+        // 4. 等待服务结束
         waitForShutdown();
 
+        // 5. 下线服务
         setServing(false);
 
-        // do a little cleanup
+        // 6. 停止Listening
         stopListening();
     }
 
@@ -86,7 +92,7 @@ public class TNonblockingServer implements RequestHandler {
      */
     protected boolean startListening() {
         try {
-            serverTransport_.listen();
+            serverTransport.listen();
             return true;
         } catch (TTransportException ttx) {
             LOGGER.error("Failed to start listening on server socket!", ttx);
@@ -98,7 +104,7 @@ public class TNonblockingServer implements RequestHandler {
      * Stop listening for connections.
      */
     protected void stopListening() {
-        serverTransport_.close();
+        serverTransport.close();
     }
 
 
@@ -112,7 +118,8 @@ public class TNonblockingServer implements RequestHandler {
     protected boolean startThreads() {
         // start the selector
         try {
-            selectAcceptThread_ = new SelectAcceptThread((TNonblockingServerTransport) serverTransport_, this, this.stopped_);
+            selectAcceptThread_ = new SelectAcceptThread((TNonblockingServerTransport) serverTransport,
+                    this, this.stopped_, MAX_READ_BUFFER_BYTES);
             selectAcceptThread_.start();
             return true;
         } catch (IOException e) {
@@ -150,10 +157,6 @@ public class TNonblockingServer implements RequestHandler {
         }
     }
 
-//    public boolean requestInvoke(FrameBuffer frameBuffer) {
-//        frameBuffer.invoke();
-//        return true;
-//    }
 
 
     public boolean isStopped() {
@@ -183,14 +186,31 @@ public class TNonblockingServer implements RequestHandler {
         }
     }
 
+
     // 异步地处理请求
-    public boolean requestInvoke(FrameBuffer frameBuffer) {
+    @Override
+    public boolean requestInvoke(final FrameBuffer frameBuffer) {
         try {
+            // 第一件事情: 读取当前的Request, 否则
+            final ByteBuffer request = frameBuffer.getBufferR();
             invoker.execute(new Runnable() {
                 @Override
                 public void run() {
-                    // frameBuffer
-                    // 如何异步地处理的frameBuffer呢?
+                    TMemoryInputTransport frameTrans = new TMemoryInputTransport(request.array());
+                    TByteArrayOutputStream response = new TByteArrayOutputStream();
+                    TBinaryProtocol in = new TBinaryProtocol(frameTrans);
+                    TBinaryProtocol out = new TBinaryProtocol(new TIOStreamTransport(response));
+                    try {
+                        processor.process(in, out);
+                        ByteBuffer writeBuf = ByteBuffer.wrap(response.get(), 0, response.len());
+
+                        frameBuffer.addWriteBuffer(writeBuf, null);
+
+
+                    } catch(TException e) {
+                        LOGGER.warn("Exception Found: ", e);
+                        frameBuffer.addWriteBuffer(null, e);
+                    }
                 }
             });
             return true;
@@ -198,6 +218,14 @@ public class TNonblockingServer implements RequestHandler {
             LOGGER.warn("ExecutorService rejected execution!", rx);
             return false;
         }
+    }
+
+    public boolean isServing() {
+        return this.isServing;
+    }
+
+    protected void setServing(boolean serving) {
+        this.isServing = serving;
     }
 
 }
