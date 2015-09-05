@@ -205,10 +205,10 @@ public class TNonblockingServer implements RequestHandler {
             final byte[] request = frameBuffer.getBufferR().array();
 
 
-            final TMemoryInputTransport frameTrans = new TMemoryInputTransport(request);
-            final TByteArrayOutputStream response = new TByteArrayOutputStream();
+            final TMemoryInputTransport frameTrans = new TMemoryInputTransport(request, 4, request.length - 4);
+
             final TBinaryProtocol in = new TBinaryProtocol(frameTrans);
-            final TBinaryProtocol out = new TBinaryProtocol(new TIOStreamTransport(response));
+
 
             try {
                 TMessage msg = in.readMessageBegin();
@@ -218,7 +218,7 @@ public class TNonblockingServer implements RequestHandler {
                     frameBuffer.addWriteBuffer(writeBuf, null);
                     return true;
                 } else {
-                    frameTrans.reset(request);
+                    frameTrans.reset(request, 4, request.length - 4);
                 }
             } catch (TException e) {
                 frameBuffer.addWriteBuffer(null, e);
@@ -228,6 +228,12 @@ public class TNonblockingServer implements RequestHandler {
             invoker.execute(new Runnable() {
                 @Override
                 public void run() {
+                    final TByteArrayOutputStream response = new TByteArrayOutputStream();
+                    final TBinaryProtocol out = new TBinaryProtocol(new TIOStreamTransport(response));
+                    try {
+                        out.writeI32(0);
+                    } catch (Exception e) {
+                    }
 
                     try {
                         processor.process(in, out);

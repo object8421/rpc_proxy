@@ -1,6 +1,10 @@
 package me.chunyu.rpc_proxy.server;
 
+import org.apache.thrift.TByteArrayOutputStream;
 import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TMessage;
+import org.apache.thrift.transport.TMemoryInputTransport;
 import org.apache.thrift.transport.TNonblockingTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,16 +29,17 @@ public class FrameBuffer {
 
     // 读写是两个独立的过程(状态分离)
     protected FrameBufferState stateR = FrameBufferState.READING_FRAME_SIZE;
-    protected FrameBufferState stateW = FrameBufferState.READING_FRAME_SIZE;
+    protected FrameBufferState stateW = FrameBufferState.WRITING;
 
     // the ByteBuffer we'll be using to write and read, depending on the state
     protected ByteBuffer bufferR;
+    protected ByteBuffer frameSizeW;
     protected ByteBuffer frameSizeR;
 
     protected ConcurrentLinkedDeque<ByteBuffer> buffersW;
 
 
-    public void addWriteBuffer(ByteBuffer writeBuf, TException exp ) {
+    public void addWriteBuffer(ByteBuffer writeBuf, TException exp) {
         if (writeBuf != null) {
             buffersW.add(writeBuf);
             // 开启读写
@@ -61,16 +66,19 @@ public class FrameBuffer {
 
         buffersW = new ConcurrentLinkedDeque<ByteBuffer>();
         frameSizeR = ByteBuffer.allocate(4);
+        frameSizeW = ByteBuffer.allocate(4);
 
         this.maxReadBufferSize = maxReadBufferSize;
 
     }
+
     /**
      * Check if this FrameBuffer has a full frame read.
      */
     public boolean isFrameFullyRead() {
         return stateR == FrameBufferState.READ_FRAME_COMPLETE;
     }
+
     /**
      * Give this FrameBuffer a chance to read. The selector loop should have
      * received a read event for this FrameBuffer.
@@ -78,7 +86,7 @@ public class FrameBuffer {
      * @return true if the connection should live on, false if it should be
      * closed
      * 两种状态下: 才能判断一个Frame是否读取完毕: {#link #read() }
-     *            read()返回true, 表示数据读取正常, {@link #isFrameFullyRead()}
+     * read()返回true, 表示数据读取正常, {@link #isFrameFullyRead()}
      */
     public boolean read() {
         // 状态切换:
@@ -121,12 +129,14 @@ public class FrameBuffer {
                 }
 
                 // increment the amount of memory allocated to read buffers
-                readBufferBytesAllocated.addAndGet(frameSize + 4);
+                readBufferBytesAllocated.addAndGet(frameSize);
 
                 // reallocate the readbuffer as a frame-sized buffer
                 // TODO: 每次来一个新的包，都会重新申请内存
                 bufferR = ByteBuffer.allocate(frameSize + 4);
                 bufferR.putInt(frameSize);
+
+                LOGGER.info("Message Frame Size: " + frameSize);
 
                 stateR = FrameBufferState.READING_FRAME;
             } else {
@@ -150,7 +160,6 @@ public class FrameBuffer {
             // modify our selection key directly.
             if (bufferR.remaining() == 0) {
                 // get rid of the read select interests
-                selectionKey.interestOps(0);
                 stateR = FrameBufferState.READ_FRAME_COMPLETE;
             }
 
@@ -174,8 +183,23 @@ public class FrameBuffer {
             ByteBuffer bufferW = buffersW.peek();
             if (bufferW != null) {
                 try {
-                    if (trans.write(bufferW) < 0) {
+                    int n;
+                    if ((n = trans.write(bufferW)) < 0) {
                         return false;
+                    } else {
+
+                        byte[] response = bufferW.array();
+                        final TMemoryInputTransport frameTrans = new TMemoryInputTransport(response, 4, response.length - 4);
+                        final TBinaryProtocol in = new TBinaryProtocol(frameTrans);
+                        try {
+                            TMessage msg = in.readMessageBegin();
+                            LOGGER.info(String.format("Write Back: %s, %d,Seq: %d", msg.name, msg.type, msg.seqid));
+                        } catch (Exception e) {
+
+                        }
+
+
+                        LOGGER.info("----> Write Frame Body: " + n);
                     }
                 } catch (IOException e) {
                     LOGGER.warn("Got an IOException during write!", e);
@@ -221,8 +245,6 @@ public class FrameBuffer {
         }
         trans.close();
     }
-
-
 
 
     /**

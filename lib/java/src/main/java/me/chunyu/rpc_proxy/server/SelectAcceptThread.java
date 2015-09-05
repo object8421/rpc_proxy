@@ -154,6 +154,7 @@ public class SelectAcceptThread extends Thread {
         } else if (buffer.isFrameFullyRead()) {
             // 成功读取完毕一条记录之后，开始处理关键点:
             // buffer在此时的状态
+            LOGGER.info("Get A New Request");
             if (!this.handler.requestInvoke(buffer)) {
                 cleanupSelectionKey(key);
             }

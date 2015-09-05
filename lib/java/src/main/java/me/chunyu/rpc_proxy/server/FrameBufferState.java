@@ -12,8 +12,6 @@ public enum FrameBufferState {
     // completely read the frame, so an invocation can now happen
     READ_FRAME_COMPLETE,
 
-
-    // started writing response data, not fully complete yet
     WRITING,
 
     AWAITING_CLOSE
