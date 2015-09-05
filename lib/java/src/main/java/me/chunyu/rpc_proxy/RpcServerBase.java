@@ -2,36 +2,40 @@ package me.chunyu.rpc_proxy;
 
 import me.chunyu.rpc_proxy.server.TNonblockingServer;
 import org.apache.thrift.TProcessor;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
+import org.apache.thrift.transport.TNonblockingServerSocket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
+import java.net.InetSocketAddress;
 
 public class RpcServerBase extends TNonblockingServer {
-
-    protected ZooKeeper zk;
+    protected final Logger LOGGER = LoggerFactory.getLogger(getClass().getName());
     protected String serviceName;
     protected String productName;
+    protected ConfigFile config;
 
-    public RpcServerBase(TProcessor processor) {
+    public RpcServerBase(TProcessor processor, String configPath) {
         super(processor);
+        config = new ConfigFile(configPath);
+
+        this.serviceName = config.service;
+        this.productName = config.productName;
+
+        setUp(config.workers, 5000);
     }
 
-    public void setUp() {
-        // TODO: 读取配置文件
-        super.setUp(5, 5);
+
+    @Override
+    public void serve() {
+        TNonblockingServerSocket socket;
+
+        try {
+            InetSocketAddress address = new InetSocketAddress(config.frontendAddr, config.frontPort);
+            socket = new TNonblockingServerSocket(address);
+        } catch (Exception e) {
+            throw new RuntimeException("");
+        }
+        setServerTransport(socket);
+        super.serve();
     }
-
-    public void registerService2Zookeeper() throws IOException {
-        this.zk = new ZooKeeper("127.0.0.1:2181", 30, new Watcher() {
-            // 监控所有被触发的事件
-            public void process(WatchedEvent event) {
-                System.out.println("已经触发了" + event.getType() + "事件！");
-            }
-        });
-
-
-    }
-
 }
