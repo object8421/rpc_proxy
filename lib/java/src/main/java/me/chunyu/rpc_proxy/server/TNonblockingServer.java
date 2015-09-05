@@ -5,6 +5,7 @@ import org.apache.thrift.TByteArrayOutputStream;
 import org.apache.thrift.TException;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TMessage;
 import org.apache.thrift.transport.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,10 +23,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TNonblockingServer implements RequestHandler {
     protected final Logger LOGGER = LoggerFactory.getLogger(getClass().getName());
 
+
+    // 不能使用负数
+    final byte MESSAGE_TYPE_HEART_BEAT = 20;
+    final byte MESSAGE_TYPE_STOP = 21;
+
+
     // 控制client最大允许分配的内存(如果不控制，很容易就OOM)
     final int MAX_READ_BUFFER_BYTES;
 
-    /** 是否正在对外启动服务 */
+    /**
+     * 是否正在对外启动服务
+     */
     private boolean isServing;
 
     protected TServerTransport serverTransport;
@@ -34,6 +43,7 @@ public class TNonblockingServer implements RequestHandler {
     private int stopTimeoutVal;
 
     private final TProcessor processor;
+
     // int workerThreads = 5, int stopTimeoutVal = 60, TimeUnit stopTimeoutUnit = TimeUnit.SECONDS, ExecutorService executorService = null
     public TNonblockingServer(TProcessor processor) {
         MAX_READ_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -58,6 +68,7 @@ public class TNonblockingServer implements RequestHandler {
         this.invoker = new ThreadPoolExecutor(workerThreads, workerThreads, stopTimeoutVal,
                 TimeUnit.SECONDS, queue);
     }
+
     public void serve() {
         // 1. 启动 I/O Threads
         if (!startThreads()) {
@@ -158,7 +169,6 @@ public class TNonblockingServer implements RequestHandler {
     }
 
 
-
     public boolean isStopped() {
         return stopped_.get();
     }
@@ -192,14 +202,33 @@ public class TNonblockingServer implements RequestHandler {
     public boolean requestInvoke(final FrameBuffer frameBuffer) {
         try {
             // 第一件事情: 读取当前的Request, 否则
-            final ByteBuffer request = frameBuffer.getBufferR();
+            final byte[] request = frameBuffer.getBufferR().array();
+
+
+            final TMemoryInputTransport frameTrans = new TMemoryInputTransport(request);
+            final TByteArrayOutputStream response = new TByteArrayOutputStream();
+            final TBinaryProtocol in = new TBinaryProtocol(frameTrans);
+            final TBinaryProtocol out = new TBinaryProtocol(new TIOStreamTransport(response));
+
+            try {
+                TMessage msg = in.readMessageBegin();
+                if (msg.type == MESSAGE_TYPE_HEART_BEAT) {
+                    LOGGER.info("GOT HEART_BEAT MESSAGE.....");
+                    ByteBuffer writeBuf = ByteBuffer.wrap(request);
+                    frameBuffer.addWriteBuffer(writeBuf, null);
+                    return true;
+                } else {
+                    frameTrans.reset(request);
+                }
+            } catch (TException e) {
+                frameBuffer.addWriteBuffer(null, e);
+                return false;
+            }
+
             invoker.execute(new Runnable() {
                 @Override
                 public void run() {
-                    TMemoryInputTransport frameTrans = new TMemoryInputTransport(request.array());
-                    TByteArrayOutputStream response = new TByteArrayOutputStream();
-                    TBinaryProtocol in = new TBinaryProtocol(frameTrans);
-                    TBinaryProtocol out = new TBinaryProtocol(new TIOStreamTransport(response));
+
                     try {
                         processor.process(in, out);
                         ByteBuffer writeBuf = ByteBuffer.wrap(response.get(), 0, response.len());
@@ -207,7 +236,7 @@ public class TNonblockingServer implements RequestHandler {
                         frameBuffer.addWriteBuffer(writeBuf, null);
 
 
-                    } catch(TException e) {
+                    } catch (TException e) {
                         LOGGER.warn("Exception Found: ", e);
                         frameBuffer.addWriteBuffer(null, e);
                     }

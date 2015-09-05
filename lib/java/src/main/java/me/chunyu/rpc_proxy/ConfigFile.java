@@ -23,9 +23,8 @@ public class ConfigFile {
 
     int workers;
 
-    String frontHost;
+    private String frontHost;
     int frontPort;
-    String frontendAddr;
     String ipPrefix;
     boolean verbose;
 
