@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
-try:
-    from cStringIO import StringIO
-except:
-    from StringIO import StringIO
 
 import socket
 from struct import pack, unpack
 import errno
 import sys
+from StringIO import StringIO
 from thrift.transport.TSocket import TSocketBase
 
 from thrift.transport.TTransport import TTransportBase, TTransportException
@@ -55,7 +52,9 @@ class TSocket(TSocketBase):
                 self.handle = socket.socket(res[0], res[1])
                 self.handle.settimeout(self._timeout)
                 # 拷贝自redis-py
-                self.handle.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                if res[0] == socket.AF_INET:
+                    self.handle.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
                 try:
                     self.handle.connect(res[4])
                 except socket.error, e:

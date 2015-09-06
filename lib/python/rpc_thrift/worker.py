@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
+
 from StringIO import StringIO
 import os
+import signal
+import time
+
 from colorama import Fore
 import gevent.pool
 import gevent.queue
 import gevent.event
 import gevent.local
 import gevent.lock
-import signal
 from thrift.transport.TTransport import TTransportException, TBufferedTransport
-import time
+
 from rpc_thrift import MESSAGE_TYPE_HEART_BEAT
 from rpc_thrift.config import print_exception
 from rpc_thrift.heartbeat import new_rpc_exit_message
@@ -92,6 +95,7 @@ class RpcWorker(object):
         except TTransportException:
             print "Sleep %ds for another retry" % self.reconnect_interval
             time.sleep(self.reconnect_interval)
+            print_exception()
 
             if self.reconnect_interval < 4:
                 self.reconnect_interval *= 2
@@ -108,8 +112,8 @@ class RpcWorker(object):
 
 
         # 3. 在同一个transport上进行读写数据
-        g1=gevent.spawn(self.loop_reader, trans, self.queue)
-        g2=gevent.spawn(self.loop_writer, trans, self.queue)
+        g1 = gevent.spawn(self.loop_reader, trans, self.queue)
+        g2 = gevent.spawn(self.loop_writer, trans, self.queue)
         gevent.joinall([g1, g2])
 
 
@@ -122,8 +126,6 @@ class RpcWorker(object):
         except:
             print_exception()
             pass
-
-
 
 
     def loop_reader(self, trans, queue):
@@ -150,7 +152,7 @@ class RpcWorker(object):
                 trans_input = TMemoryBuffer(frameIO)
                 proto_input = TUtf8BinaryProtocol(trans_input)
                 name, type, seqid = proto_input.readMessageBegin()
-                frameIO.seek(0) # 将proto_input复原
+                frameIO.seek(0)  # 将proto_input复原
 
                 # 如果是心跳，则直接返回
                 if type == MESSAGE_TYPE_HEART_BEAT:
@@ -167,13 +169,12 @@ class RpcWorker(object):
                 if e.type != TTransportException.END_OF_FILE:
                     print_exception()
                 print "....Worker Connection To LB Failed, LoopWrite Stop"
-                queue.put(None) # 表示要结束了
+                queue.put(None)  # 表示要结束了
                 break
             except:
                 print_exception()
-                queue.put(None) # 表示要结束了
+                queue.put(None)  # 表示要结束了
                 break
-
 
 
     def loop_writer(self, trans, queue):
@@ -224,6 +225,7 @@ class RpcWorker(object):
 
     def run(self):
         import gevent.monkey
+
         gevent.monkey.patch_socket()
 
         # 0. 注册信号(控制运维)
