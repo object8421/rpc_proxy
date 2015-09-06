@@ -9,6 +9,7 @@ host_name=$1
 # 创建目录，拷贝rpc_proxy/rpc_lb
 echo "ssh root@${host_name} mkdir -p /usr/local/rpc_proxy/bin/"
 ssh root@${host_name} "mkdir -p /usr/local/rpc_proxy/bin/"
+ssh root@${host_name} "mkdir -p /usr/local/rpc_proxy/log/"
 
 # 拷贝: rpc_lb
 echo "ssh root@${host_name} rm -f /usr/local/rpc_proxy/bin/rpc_lb"
