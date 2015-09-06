@@ -83,8 +83,7 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 		log.Panic("No Config Check Given")
 	}
 	// 每次启动的时候都打印版本信息
-	log.Info(Green("VERSION: "))
-	log.Info(version)
+	log.Infof(Green("-----------------\n%s\n--------------------------------------------------------------------"), version)
 
 	// 启动服务
 	server := serverFactory(conf)
