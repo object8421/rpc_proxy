@@ -7,6 +7,7 @@ import time
 
 from colorama import Fore
 import gevent
+from rpc_thrift import MESSAGE_TYPE_HEART_BEAT
 from thrift.transport.TSocket import TServerSocket
 from thrift.transport.TTransport import TTransportException, TBufferedTransport
 

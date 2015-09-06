@@ -2,10 +2,9 @@
 from __future__ import absolute_import
 
 from thrift.protocol.TMultiplexedProtocol import TMultiplexedProtocol
-from thrift.transport.TSocket import TSocket
 
 from rpc_thrift.protocol import TUtf8BinaryProtocol, TLoggerMultiplexedProtocol
-from rpc_thrift.transport import TAutoConnectFramedTransport
+from rpc_thrift.transport import TAutoConnectFramedTransport, TSocket
 
 
 

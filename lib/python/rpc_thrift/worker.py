@@ -9,14 +9,13 @@ import gevent.event
 import gevent.local
 import gevent.lock
 import signal
-from thrift.transport.TSocket import TSocket
 from thrift.transport.TTransport import TTransportException, TBufferedTransport
 import time
 from rpc_thrift import MESSAGE_TYPE_HEART_BEAT
 from rpc_thrift.config import print_exception
 from rpc_thrift.heartbeat import new_rpc_exit_message
 from rpc_thrift.protocol import TUtf8BinaryProtocol
-from rpc_thrift.transport import TMemoryBuffer, TFramedTransportEx
+from rpc_thrift.transport import TMemoryBuffer, TFramedTransportEx, TSocket
 
 
 class RpcWorker(object):
