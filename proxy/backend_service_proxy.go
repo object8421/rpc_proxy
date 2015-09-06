@@ -19,7 +19,8 @@ type BackService struct {
 	serviceName string
 	topo        *zk.Topology
 
-	activeConnsLock  sync.RWMutex
+	// 同时保护: activeConns 和 currentConnIndex
+	activeConnsLock  sync.Mutex
 	activeConns      []*BackendConn // 每一个BackendConn应该有一定的高可用保障
 	currentConnIndex int
 
@@ -153,8 +154,8 @@ func (s *BackService) WatchBackServiceNodes() {
 func (s *BackService) NextBackendConn() *BackendConn {
 	var backSocket *BackendConn
 
-	s.activeConnsLock.RLock()
-	defer s.activeConnsLock.RUnlock()
+	s.activeConnsLock.Lock()
+	defer s.activeConnsLock.Unlock()
 
 	if len(s.activeConns) == 0 {
 		backSocket = nil

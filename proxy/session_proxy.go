@@ -48,7 +48,9 @@ func NewSession(c thrift.TTransport, address string, verbose bool) *Session {
 	return NewSessionSize(c, address, verbose, 1024*32, 1800)
 }
 
-func NewSessionSize(c thrift.TTransport, address string, verbose bool, bufsize int, timeout int) *Session {
+func NewSessionSize(c thrift.TTransport, address string, verbose bool,
+	bufsize int, timeout int) *Session {
+
 	s := &Session{
 		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,

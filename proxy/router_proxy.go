@@ -13,10 +13,13 @@ import (
 
 type Router struct {
 	productName string
+
+	// 只用于保护: services
 	serviceLock sync.RWMutex
 	services    map[string]*BackService
-	topo        *zk.Topology
-	verbose     bool
+
+	topo    *zk.Topology
+	verbose bool
 }
 
 func NewRouter(productName string, topo *zk.Topology, verbose bool) *Router {
