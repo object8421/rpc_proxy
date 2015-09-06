@@ -28,3 +28,4 @@ scp rpc_lb root@${host_name}:/usr/local/rpc_proxy/bin/rpc_proxy
 scp git.chunyu.me/infra/rpc_proxy/scripts/control_lb.sh    root@${host_name}:/usr/local/rpc_proxy/
 scp git.chunyu.me/infra/rpc_proxy/scripts/control_proxy.sh root@${host_name}:/usr/local/rpc_proxy/
 scp git.chunyu.me/infra/rpc_proxy/scripts/config.test.ini  root@${host_name}:/usr/local/rpc_proxy/config.ini
+scp git.chunyu.me/infra/rpc_proxy/scripts/rpc_proxy.conf.upstart  root@${host_name}:/etc/init/rpc_proxy.conf
