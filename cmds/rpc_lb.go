@@ -13,6 +13,11 @@ const (
 	SERVICE_DESC = "Chunyu RPC Load Balance Service"
 )
 
+var (
+	gitVersion string
+	buildDate  string
+)
+
 func main() {
 	proxy.RpcMain(BINARY_NAME, SERVICE_DESC,
 		// 验证LB的配置
@@ -20,6 +25,6 @@ func main() {
 		// 根据配置创建一个Server
 		func(config *utils.Config) proxy.Server {
 			return proxy.NewThriftLoadBalanceServer(config)
-		})
+		}, gitVersion, gitVersion)
 
 }

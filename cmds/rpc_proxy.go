@@ -10,6 +10,11 @@ const (
 	SERVICE_DESC = "Chunyu RPC Local Proxy v0.1"
 )
 
+var (
+	gitVersion string
+	buildDate  string
+)
+
 func main() {
 	proxy.RpcMain(BINARY_NAME, SERVICE_DESC,
 		// 验证LB的配置
@@ -18,6 +23,6 @@ func main() {
 		func(config *utils.Config) proxy.Server {
 			// 正式的服务
 			return proxy.NewProxyServer(config)
-		})
+		}, buildDate, gitVersion)
 
 }

@@ -11,7 +11,9 @@ import (
 	"strconv"
 )
 
-var usage = `usage: %s -c <config_file>[-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>] 
+var usage = `Usage: 
+  %s -c <config_file> [-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>]
+  %s -V | --version
 
 options:
    -c <config_file>
@@ -21,13 +23,20 @@ options:
 `
 
 func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
-	serverFactory ServerFactorory) {
+	serverFactory ServerFactorory, buildDate string, gitVersion string) {
 
 	// 1. 准备解析参数
-	usage = fmt.Sprintf(usage, binaryName)
-	args, err := docopt.Parse(usage, nil, true, serviceDesc, true)
+	usage = fmt.Sprintf(usage, binaryName, binaryName)
+
+	version := fmt.Sprintf("Version: %s\nBuildDate: %s\nDesc: %s\nAuthor:wangfei@chunyu.me", gitVersion, buildDate, serviceDesc)
+	args, err := docopt.Parse(usage, nil, true, version, true)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	if _, ok := args["-V"]; ok {
+		fmt.Println(version)
 		os.Exit(1)
 	}
 

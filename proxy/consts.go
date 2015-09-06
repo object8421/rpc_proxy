@@ -7,4 +7,5 @@ const (
 	INVALID_ARRAY_INDEX     = -1 // 无效的数组元素下标
 	HB_TIMEOUT              = 6  // 心跳超时时间间隔
 	TEST_PRODUCT_NAME       = "test"
+	VERSION                 = "0.1.0-2015090621" // 版本信息
 )
