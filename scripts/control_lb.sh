@@ -39,6 +39,7 @@ function start() {
         echo "Config file $conf doesn't exist, creating one."
         exit -1
     fi
+	# 每次重启之后 stdfile被覆盖
     nohup $app -c $conf -L $logfile &> $stdfile &
     echo $! > $pidfile
     echo "$app started..., pid=$!"

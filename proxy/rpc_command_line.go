@@ -35,7 +35,7 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 		os.Exit(1)
 	}
 
-	if _, ok := args["-V"]; ok {
+	if s, ok := args["-V"].(bool); ok && s {
 		fmt.Println(version)
 		os.Exit(1)
 	}
