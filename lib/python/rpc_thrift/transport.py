@@ -6,56 +6,6 @@ from struct import pack, unpack
 from thrift.transport.TTransport import TTransportBase, TTransportException
 
 
-class TAutoConnectSocket(TTransportBase):
-    """
-        将socket进行包装，提供了自动重连的功能
-    """
-    def __init__(self, socket):
-        self.socket = socket
-
-    def isOpen(self):
-        return self.socket.isOpen()
-
-    def open(self):
-        self.socket.open()
-
-    def close(self):
-        self.socket.close()
-
-    def flush(self):
-        self.socket.flush()
-
-    def read(self, sz):
-        if not self.isOpen():
-            self.open()
-
-        try:
-            return self.socket.read(sz)
-        except TTransportException as e:
-            self.close()
-            raise
-
-    def write(self, buf):
-        if not self.isOpen():
-            self.open()
-
-        try:
-            self.socket.write( buf)
-        except TTransportException as e:
-            self.close()
-            raise
-
-    def readAll(self, sz):
-        if not self.isOpen():
-            self.open()
-
-        try:
-            return self.socket.readAll(sz)
-        except:
-            self.close()
-            raise
-
-
 class TFramedTransportEx(TTransportBase):
     """
         和 TFramedTransport的区别:
@@ -117,6 +67,81 @@ class TFramedTransportEx(TTransportBase):
         self.trans.write(pack("!i", wsz))
         self.trans.write(wout)
         self.trans.flush()
+
+class TAutoConnectFramedTransport(TTransportBase):
+    """
+        将socket进行包装，提供了自动重连的功能, 重连之后清空之前的状态
+    """
+    def __init__(self, socket):
+        self.socket = socket
+
+        self.wbuf = StringIO()
+        self.rbuf = StringIO()
+
+    def isOpen(self):
+        return self.socket.isOpen()
+
+    def open(self):
+        """
+            open之后需要重置状态
+        """
+        self.socket.open()
+
+        # 恢复状态
+        self.reset_buff()
+
+    def close(self):
+        self.socket.close()
+
+    def reset_buff(self):
+        if self.wbuf.len != 0:
+            self.wbuf = StringIO()
+        if self.rbuf.len != 0:
+            self.rbuf = StringIO()
+
+    def read(self, sz):
+        if not self.isOpen():
+            self.open()
+
+        ret = self.rbuf.read(sz)
+        if len(ret) != 0:
+            return ret
+
+        try:
+            self.__readFrame()
+            return self.rbuf.read(sz)
+        except Exception: # TTransportException, timeout, Broken Pipe
+            self.close()
+            raise
+
+    def __readFrame(self):
+        buff = self.socket.readAll(4)
+        sz, = unpack('!i', buff)
+        self.rbuf = StringIO(self.socket.readAll(sz))
+
+
+    def write(self, buf):
+        if not self.isOpen():
+            self.open()
+        self.wbuf.write(buf)
+
+    def flush(self):
+        if not self.isOpen():
+            self.open()
+
+        wout = self.wbuf.getvalue()
+        wsz = len(wout)
+        self.wbuf = StringIO() # 状态恢复了
+
+        # print "TFramedTransport#Flush Frame Size: ", wsz
+        try:
+            # 首先写入长度，并且Flush之前的数据
+            self.socket.write(pack("!i", wsz))
+            self.socket.write(wout)
+            self.socket.flush()
+        except Exception:
+            self.close()
+            raise
 
 
 class TMemoryBuffer(TTransportBase):
