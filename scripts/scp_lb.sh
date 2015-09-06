@@ -10,3 +10,4 @@ ssh root@${host_name} "rm -f /usr/local/rpc_proxy/bin/rpc_lb"
 
 echo "scp rpc_lb root@${host_name}:/usr/local/rpc_proxy/bin/rpc_lb"
 scp rpc_lb root@${host_name}:/usr/local/rpc_proxy/bin/rpc_lb
+
