@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 /**
@@ -44,18 +45,15 @@ public class TNonblockingServer implements RequestHandler {
 
     private final TProcessor processor;
 
+    protected AtomicLong lastRequestTime;
+
     // int workerThreads = 5, int stopTimeoutVal = 60, TimeUnit stopTimeoutUnit = TimeUnit.SECONDS, ExecutorService executorService = null
     public TNonblockingServer(TProcessor processor) {
         MAX_READ_BUFFER_BYTES = 64 * 1024 * 1024;
 
-
         this.processor = processor;
+        this.lastRequestTime = new AtomicLong();
 
-
-    }
-
-    public TServerTransport getServerTransport() {
-        return serverTransport;
     }
 
     public void setServerTransport(TServerTransport serverTransport) {
@@ -175,9 +173,11 @@ public class TNonblockingServer implements RequestHandler {
 
 
     protected void gracefullyShutdownInvokerPool() {
+        // 1. 拒绝提交任务
         // try to gracefully shut down the executor service
         invoker.shutdown();
 
+        // 2. 处理旧的任务
         // Loop until awaitTermination finally does return without a interrupted
         // exception. If we don't do this, then we'll shut down prematurely. We want
         // to let the executorService clear it's task queue, closing client sockets
@@ -203,10 +203,8 @@ public class TNonblockingServer implements RequestHandler {
         try {
             // 第一件事情: 读取当前的Request, 否则
             final byte[] request = frameBuffer.getBufferR().array();
-
-
+            // 跳过前4个字节的Frame Size
             final TMemoryInputTransport frameTrans = new TMemoryInputTransport(request, 4, request.length - 4);
-
             final TBinaryProtocol in = new TBinaryProtocol(frameTrans);
 
 
@@ -218,6 +216,7 @@ public class TNonblockingServer implements RequestHandler {
                     frameBuffer.addWriteBuffer(writeBuf, null);
                     return true;
                 } else {
+                    lastRequestTime.set(System.currentTimeMillis());
                     frameTrans.reset(request, 4, request.length - 4);
                 }
             } catch (TException e) {
@@ -230,6 +229,8 @@ public class TNonblockingServer implements RequestHandler {
                 public void run() {
                     final TByteArrayOutputStream response = new TByteArrayOutputStream();
                     final TBinaryProtocol out = new TBinaryProtocol(new TIOStreamTransport(response));
+
+                    // 预留4个字节的FrameSize Buff
                     try {
                         out.writeI32(0);
                     } catch (Exception e) {
@@ -237,6 +238,9 @@ public class TNonblockingServer implements RequestHandler {
 
                     try {
                         processor.process(in, out);
+
+                        ByteBuffer frameSizeW = ByteBuffer.wrap(response.get(), 0, 4);
+                        frameSizeW.putInt(response.len() - 4); // 记录后面的Frame的长度
                         ByteBuffer writeBuf = ByteBuffer.wrap(response.get(), 0, response.len());
 
                         frameBuffer.addWriteBuffer(writeBuf, null);

@@ -183,6 +183,7 @@ public class FrameBuffer {
             ByteBuffer bufferW = buffersW.peek();
             if (bufferW != null) {
                 try {
+                    // 可以考虑将多个bufferW合并放在一个 tcp package中，减少系统调用
                     int n;
                     if ((n = trans.write(bufferW)) < 0) {
                         return false;
