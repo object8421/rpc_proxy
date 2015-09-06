@@ -161,9 +161,11 @@ func (bc *BackendConn) ensureConn() (transport thrift.TTransport, err error) {
 	err = transport.Open()
 	for err != nil && !bc.IsMarkOffline.Get() {
 		log.ErrorErrorf(err, "[%s]Socket Open Failed: %v, Addr: %s", bc.service, err, bc.addr)
+
+		// Sleep: 1, 2, 4这几个间隔
 		time.Sleep(time.Duration(sleepInterval) * time.Second)
 
-		if sleepInterval < 8 {
+		if sleepInterval < 4 {
 			sleepInterval *= 2
 		}
 		err = transport.Open()
