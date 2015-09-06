@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -159,7 +160,7 @@ func (bc *BackendConn) ensureConn() (transport thrift.TTransport, err error) {
 	sleepInterval := 1
 	err = transport.Open()
 	for err != nil && !bc.IsMarkOffline.Get() {
-		log.ErrorErrorf(err, "Socket Open Failed: %v, Addr: %s", err, bc.addr)
+		log.ErrorErrorf(err, "[%s]Socket Open Failed: %v, Addr: %s", bc.service, err, bc.addr)
 		time.Sleep(time.Duration(sleepInterval) * time.Second)
 
 		if sleepInterval < 8 {
@@ -180,7 +181,7 @@ func (bc *BackendConn) Run() {
 		// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 		transport, err := bc.ensureConn()
 		if err != nil {
-			log.ErrorErrorf(err, "BackendConn#ensureConn error: %v", err)
+			log.ErrorErrorf(err, "[%s]BackendConn#ensureConn error: %v", bc.service, err)
 			return
 		}
 
@@ -194,7 +195,7 @@ func (bc *BackendConn) Run() {
 
 		// 4. 将bc.input中剩余的 Request直接出错处理
 		if err == nil {
-			log.Println(Red("BackendConn#loopWriter normal Exit..."))
+			log.Printf(Red("[%s]BackendConn#loopWriter normal Exit..."), bc.service)
 			break
 		} else {
 			// 对于尚未处理的Request, 直接报错
@@ -229,7 +230,7 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 				return nil
 			}
 		case <-bc.hbTimeout:
-			return errors.New("HB timeout")
+			return errors.New(fmt.Sprintf("[%s]HB timeout", bc.service))
 		}
 
 		//
@@ -296,7 +297,7 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
 			if err != nil {
 				err1, ok := err.(thrift.TTransportException)
 				if !ok || err1.TypeId() != thrift.END_OF_FILE {
-					log.ErrorErrorf(err, Red("ReadFrame From Server with Error: %v"), err)
+					log.ErrorErrorf(err, Red("[%s]ReadFrame From Server with Error: %v"), bc.service, err)
 				}
 				bc.flushRequests(err)
 				break
@@ -323,11 +324,11 @@ func (bc *BackendConn) flushRequests(err error) {
 			t := time.Unix(request.Start, 0)
 			if t.After(threshold) {
 				// 似乎在笔记本上，合上显示器之后出出现网络错误
-				log.Printf(Red("Handle Failed Request: %s %s, Started: %s"),
+				log.Printf(Red("[%s]Handle Failed Request: %s, Started: %s"),
 					request.Service, request.Request.Name, FormatYYYYmmDDHHMMSS(t))
 			}
 		} else {
-			log.Printf(Red("Handle Failed Request: %s %s"), request.Service,
+			log.Printf(Red("[%s]Handle Failed Request: %s"), request.Service,
 				request.Request.Name)
 		}
 		request.Response.Err = err
@@ -343,7 +344,7 @@ func (bc *BackendConn) flushRequests(err error) {
 func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	// 表示出现错误了
 	if data == nil {
-		log.Printf("No Data From Server, error: %v", err)
+		log.Printf("[%s]No Data From Server, error: %v", r.Service, err)
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息

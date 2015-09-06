@@ -21,7 +21,8 @@ type BackServiceLB struct {
 	// Mutex的使用：
 	// 	避免使用匿名的Mutex, 需要指定一个语义明确的变量，限定它的使用范围(另可多定义几个Mutex, 不能滥用)
 	//
-	activeConnsLock  sync.RWMutex
+	// 同时保护: activeConns 和 currentConnIndex
+	activeConnsLock  sync.Mutex
 	activeConns      []*BackendConnLB // 每一个BackendConn应该有一定的高可用保障
 	currentConnIndex int
 
@@ -35,12 +36,13 @@ func NewBackServiceLB(serviceName string, backendAddr string, verbose bool,
 	exitEvt chan bool) *BackServiceLB {
 
 	service := &BackServiceLB{
-		serviceName: serviceName,
-		backendAddr: backendAddr,
-		activeConns: make([]*BackendConnLB, 0, 10),
-		verbose:     verbose,
-		exitEvt:     exitEvt,
-		ch:          make(chan thrift.TTransport, 4096),
+		serviceName:      serviceName,
+		backendAddr:      backendAddr,
+		activeConns:      make([]*BackendConnLB, 0, 10),
+		verbose:          verbose,
+		exitEvt:          exitEvt,
+		currentConnIndex: 0,
+		ch:               make(chan thrift.TTransport, 4096),
 	}
 
 	service.run()
@@ -59,7 +61,7 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 	if backendConn == nil {
 		// 没有后端服务
 		if s.verbose {
-			log.Printf(Red("No BackSocket Found for service: %s.%s"),
+			log.Printf(Red("[%s]No BackSocket Found: %s"),
 				s.serviceName, r.Request.Name)
 		}
 		// 从errMsg来构建异常
@@ -107,19 +109,19 @@ func (s *BackServiceLB) run() {
 	}
 
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Create Failed: %v", err)
+		log.ErrorErrorf(err, "[%s]Server Socket Create Failed: %v", s.serviceName, err)
 		panic("BackendAddr Invalid")
 	}
 
 	err = transport.Listen()
 	if err != nil {
-		log.ErrorErrorf(err, "Server Socket Open Failed: %v", err)
+		log.ErrorErrorf(err, "[%s]Server Socket Open Failed: %v", s.serviceName, err)
 		panic("Server Socket Open Failed")
 	}
 
 	// 和transport.open做的事情一样，如果Open没错，则Listen也不会有问题
 
-	log.Printf(Green("LB Backend Services listens at: %s"), s.backendAddr)
+	log.Printf(Green("[%s]LB Backend Services listens at: %s"), s.serviceName, s.backendAddr)
 
 	s.ch = make(chan thrift.TTransport, 4096)
 
@@ -133,9 +135,9 @@ func (s *BackServiceLB) run() {
 
 	go func() {
 		var backendAddr string
-		for c := range s.ch {
+		for trans := range s.ch {
 			// 为每个Connection建立一个Session
-			socket, ok := c.(SocketAddr)
+			socket, ok := trans.(SocketAddr)
 			if ok {
 				if isUnixDomain {
 					backendAddr = s.backendAddr
@@ -143,7 +145,7 @@ func (s *BackServiceLB) run() {
 					backendAddr = socket.Addr().String()
 				}
 
-				conn := NewBackendConnLB(c, s.serviceName, backendAddr, s, s.verbose)
+				conn := NewBackendConnLB(trans, s.serviceName, backendAddr, s, s.verbose)
 
 				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
 				s.activeConnsLock.Lock()
@@ -173,20 +175,22 @@ func (s *BackServiceLB) run() {
 }
 
 func (s *BackServiceLB) Active() int {
+	s.activeConnsLock.Lock()
+	defer s.activeConnsLock.Unlock()
 	return len(s.activeConns)
 }
 
 // 获取下一个active状态的BackendConn
 func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
-	s.activeConnsLock.RLock()
-	defer s.activeConnsLock.RUnlock()
+	s.activeConnsLock.Lock()
+	defer s.activeConnsLock.Unlock()
 
 	// TODO: 暂时采用RoundRobin的方法，可以采用其他具有优先级排列的方法
 	var backSocket *BackendConnLB
 
 	if len(s.activeConns) == 0 {
 		if s.verbose {
-			log.Printf(Cyan("ActiveConns Len 0"))
+			log.Printf(Cyan("[%s]ActiveConns Len 0"), s.serviceName)
 		}
 		backSocket = nil
 	} else {
@@ -196,7 +200,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 		backSocket = s.activeConns[s.currentConnIndex]
 		s.currentConnIndex++
 		if s.verbose {
-			log.Printf(Cyan("ActiveConns Len %d, CurrentIndex: %d"),
+			log.Printf(Cyan("[%s]ActiveConns Len %d, CurrentIndex: %d"), s.serviceName,
 				len(s.activeConns), s.currentConnIndex)
 		}
 	}
@@ -205,11 +209,10 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 
 // 只有在conn出现错误时才会调用
 func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
-	log.Printf(Green("StateChanged: %s, Index: %d, Count: %d"), conn.addr4Log, conn.Index, len(s.activeConns))
-
 	s.activeConnsLock.Lock()
 	defer s.activeConnsLock.Unlock()
 
+	log.Printf(Green("[%s]StateChanged: %s, Index: %d, Count: %d"), conn.serviceName, conn.addr4Log, conn.Index, len(s.activeConns))
 	if conn.IsConnActive.Get() {
 		// BackServiceLB 只有一个状态转移: Active --> Not Active
 		log.Printf(Magenta("Unexpected BackendConnLB State"))
