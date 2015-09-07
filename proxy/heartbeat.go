@@ -25,7 +25,8 @@ func HandlePingRequest(req *Request) {
 
 func NewPingRequest() *Request {
 	// 构建thrift的Transport
-	transport := thrift.NewTMemoryBufferLen(1024)
+
+	transport := NewTMemoryBufferLen(30)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 	protocol.WriteMessageBegin("ping", MESSAGE_TYPE_HEART_BEAT, 0)
 	protocol.WriteMessageEnd()

@@ -8,8 +8,8 @@ import (
 	"unsafe"
 )
 
-var memoryBuffer1024 chan []byte = make(chan []byte, 1000)
-var memoryBuffer2048 chan []byte = make(chan []byte, 1000)
+var memoryBuffer1024 chan []byte = make(chan []byte, 1000) // 1M
+var memoryBuffer2048 chan []byte = make(chan []byte, 1000) // 2M
 
 func debugBuffer1024Size() int {
 	return len(memoryBuffer1024)

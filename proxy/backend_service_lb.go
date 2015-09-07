@@ -6,6 +6,7 @@ import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -86,8 +87,8 @@ func (s *BackServiceLB) run() {
 	go func() {
 		// 定时汇报当前的状态
 		for true {
-			log.Printf(Green("[Report]: %s --> %d workers"),
-				s.serviceName, s.Active())
+			log.Printf(Green("[Report]: %s --> %d workers, coroutine: %d"),
+				s.serviceName, s.Active(), runtime.NumGoroutine())
 			time.Sleep(time.Second * 10)
 		}
 	}()

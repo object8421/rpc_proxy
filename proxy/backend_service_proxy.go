@@ -6,6 +6,7 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -48,7 +49,8 @@ func NewBackService(productName string, serviceName string, topo *zk.Topology, v
 
 	go func() {
 		for !service.stop.Get() {
-			log.Printf(Blue("[Report]: %s --> %d backservice"), service.serviceName, service.Active())
+			log.Printf(Blue("[Report]: %s --> %d backservice, coroutine: %d"),
+				service.serviceName, service.Active(), runtime.NumGoroutine())
 			time.Sleep(time.Second * 10)
 		}
 	}()
@@ -75,6 +77,8 @@ func (s *BackService) Stop() {
 		for len(s.activeConns) > 0 {
 			s.activeConns[0].MarkOffline()
 		}
+
+		log.Printf(Red("Mark All Connections Off: %s"), s.serviceName)
 
 	}()
 }
