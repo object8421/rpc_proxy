@@ -28,7 +28,7 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 	// 1. 准备解析参数
 	usage = fmt.Sprintf(usage, binaryName, binaryName)
 
-	version := fmt.Sprintf("Version: %s\nBuildDate: %s\nDesc: %s\nAuthor:wangfei@chunyu.me", gitVersion, buildDate, serviceDesc)
+	version := fmt.Sprintf("Version: %s\nBuildDate: %s\nDesc: %s\nAuthor: wangfei@chunyu.me", gitVersion, buildDate, serviceDesc)
 	args, err := docopt.Parse(usage, nil, true, version, true)
 	if err != nil {
 		fmt.Println(err)
@@ -36,7 +36,7 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 	}
 
 	if s, ok := args["-V"].(bool); ok && s {
-		fmt.Println(version)
+		fmt.Println(Green(version))
 		os.Exit(1)
 	}
 

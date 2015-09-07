@@ -59,7 +59,8 @@ func (r *rollingFile) roll() error {
 
 			filePath := fmt.Sprintf("%s-%s", r.basePath, now.AddDate(0, 0, -i).Format("20060102"))
 			_, err := os.Stat(filePath)
-			if os.IsNotExist(err) {
+			// 如果存在，则删除
+			if !os.IsNotExist(err) {
 				os.Remove(filePath)
 			}
 		}

@@ -1,2 +1,2 @@
-go build -ldflags "-X main.buildDate=`date -u +%Y%m%d%H%M%S` -X main.gitVersion=`git -C git.chunyu.me/infra/rpc_proxy rev-parse HEAD`" git.chunyu.me/infra/rpc_proxy/cmds/rpc_proxy.go
+go build -ldflags "-X main.buildDate=`date +%Y%m%d%H%M%S` -X main.gitVersion=`git -C git.chunyu.me/infra/rpc_proxy rev-parse HEAD`" git.chunyu.me/infra/rpc_proxy/cmds/rpc_proxy.go
 # && cp rpc_proxy /usr/local/rpc_proxy/bin/
