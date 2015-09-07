@@ -36,8 +36,10 @@ type BackendConn struct {
 	verbose       bool
 
 	hbLastTime atomic2.Int64
-	hbTicker   *time.Ticker
-	hbTimeout  chan bool
+
+	hbTicker  *time.Ticker
+	hbStop    chan bool
+	hbTimeout chan bool
 }
 
 func NewBackendConn(addr string, delegate *BackService, service string, verbose bool) *BackendConn {
@@ -47,6 +49,7 @@ func NewBackendConn(addr string, delegate *BackService, service string, verbose 
 		input:          make(chan *Request, 1024),
 		seqNum2Request: make(map[int32]*Request, 4096),
 		hbTimeout:      make(chan bool),
+		hbStop:         make(chan bool),
 		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
 		Index:          INVALID_ARRAY_INDEX,
 		delegate:       delegate,
@@ -63,7 +66,10 @@ func (bc *BackendConn) Heartbeat() {
 	LOOP:
 		for true {
 			select {
+			case <-bc.hbStop:
+				return
 			case <-bc.hbTicker.C:
+				log.Printf(Red("HB: %s"), bc.service)
 				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
 					break LOOP
@@ -96,6 +102,8 @@ func (bc *BackendConn) MarkOffline() {
 
 		// 不再接受(来自backend_service_proxy的)新的输入
 		bc.MarkConnActiveFalse()
+
+		close(bc.input)
 	}
 }
 
@@ -215,7 +223,10 @@ func (bc *BackendConn) Run() {
 func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
 	bc.hbTicker = time.NewTicker(time.Second)
-	defer bc.hbTicker.Stop()
+	defer func() {
+		bc.hbTicker.Stop()
+		bc.hbStop <- true
+	}()
 
 	bc.MarkConnActiveOK() // 准备接受数据
 	bc.loopReader(c)      // 异步
