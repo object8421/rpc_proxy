@@ -14,8 +14,8 @@ const (
 )
 
 var (
-	gitVersion string
 	buildDate  string
+	gitVersion string
 )
 
 func main() {
@@ -25,6 +25,6 @@ func main() {
 		// 根据配置创建一个Server
 		func(config *utils.Config) proxy.Server {
 			return proxy.NewThriftLoadBalanceServer(config)
-		}, gitVersion, gitVersion)
+		}, buildDate, gitVersion)
 
 }
