@@ -4,7 +4,6 @@
 package proxy
 
 import (
-	"fmt"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"sync"
@@ -56,9 +55,10 @@ func (bk *Router) WatchServices() {
 
 	// 1. 保证Service目录存在，否则会报错
 	servicesPath := bk.topo.ProductServicesPath()
-	path, e1 := bk.topo.CreateDir(servicesPath)
-
-	fmt.Println("Path: ", path, "error: ", e1)
+	_, e1 := bk.topo.CreateDir(servicesPath)
+	if e1 != nil {
+		log.PanicErrorf(e1, "Zk Path Create Failed: %s", servicesPath)
+	}
 
 	go func() {
 		for true {

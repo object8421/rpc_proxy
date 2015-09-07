@@ -7,12 +7,14 @@ import (
 	utils "git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/docopt/docopt-go"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 )
 
 var usage = `Usage: 
-  %s -c <config_file> [-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>]
+  %s -c <config_file> [-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>] [--profile-addr=<profile-addr>]
   %s -V | --version
 
 options:
@@ -20,6 +22,7 @@ options:
    -L	set output log file, default is stdout
    --log-level=<loglevel>	set log level: info, warn, error, debug [default: info]
    --log-keep-days=<maxdays>  set max log file keep days, default is 3 days
+   --profile-addr=<profile-addr>
 `
 
 func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
@@ -38,6 +41,14 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 	if s, ok := args["-V"].(bool); ok && s {
 		fmt.Println(Green(version))
 		os.Exit(1)
+	}
+
+	// 这就是为什么 Codis 傻乎乎起一个 http server的目的
+	if s, ok := args["--profile-addr"].(string); ok && len(s) > 0 {
+		go func() {
+			log.Printf(Red("Profile Address: %s"), s)
+			log.Println(http.ListenAndServe(s, nil))
+		}()
 	}
 
 	// 2. 解析Log相关的配置

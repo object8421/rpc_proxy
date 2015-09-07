@@ -33,6 +33,7 @@ type BackendConnLB struct {
 
 	hbLastTime atomic2.Int64
 	hbTicker   *time.Ticker
+	hbStop     chan bool
 	hbTimeout  chan bool
 }
 
@@ -60,6 +61,8 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		Index:          INVALID_ARRAY_INDEX,
 		delegate:       delegate,
 		verbose:        verbose,
+		hbStop:         make(chan bool),
+		hbTimeout:      make(chan bool),
 	}
 	bc.IsConnActive.Set(true)
 	go bc.Run()
@@ -166,7 +169,10 @@ func (bc *BackendConnLB) loopWriter() error {
 	// BackendConnLB 在构造之初就有打开的transport, 并且Active默认为OK
 
 	bc.hbTicker = time.NewTicker(time.Second)
-	defer bc.hbTicker.Stop()
+	defer func() {
+		bc.hbTicker.Stop()
+		bc.hbStop <- true
+	}()
 
 	bc.loopReader(c) // 异步
 	bc.Heartbeat()   // 建立连接之后，就启动HB
@@ -177,6 +183,8 @@ func (bc *BackendConnLB) loopWriter() error {
 	for true {
 		// 等待输入的Event, 或者 heartbeatTimeout
 		select {
+		case <-bc.hbStop:
+			return
 		case r, ok = <-bc.input:
 			if !ok {
 				return nil
