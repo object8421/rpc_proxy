@@ -79,6 +79,11 @@ func (bc *BackendConnLB) Heartbeat() {
 	LOOP:
 		for true {
 			select {
+			// Ticker stop不会关闭: Channel
+			// http://golang.org/pkg/time/#Ticker
+			// Stop turns off a ticker. After Stop, no more ticks will be sent. Stop does not close the channel, to prevent a read from the channel succeeding incorrectly.
+			case <-bc.hbStop:
+				return
 			case <-bc.hbTicker.C:
 				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
@@ -183,8 +188,6 @@ func (bc *BackendConnLB) loopWriter() error {
 	for true {
 		// 等待输入的Event, 或者 heartbeatTimeout
 		select {
-		case <-bc.hbStop:
-			return
 		case r, ok = <-bc.input:
 			if !ok {
 				return nil
