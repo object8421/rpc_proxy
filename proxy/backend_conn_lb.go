@@ -33,6 +33,7 @@ type BackendConnLB struct {
 
 	hbLastTime atomic2.Int64
 	hbTicker   *time.Ticker
+	hbStop     chan bool
 	hbTimeout  chan bool
 }
 
@@ -60,6 +61,8 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log 
 		Index:          INVALID_ARRAY_INDEX,
 		delegate:       delegate,
 		verbose:        verbose,
+		hbStop:         make(chan bool),
+		hbTimeout:      make(chan bool),
 	}
 	bc.IsConnActive.Set(true)
 	go bc.Run()
@@ -177,6 +180,8 @@ func (bc *BackendConnLB) loopWriter() error {
 	for true {
 		// 等待输入的Event, 或者 heartbeatTimeout
 		select {
+		case <-bc.hbStop:
+			return
 		case r, ok = <-bc.input:
 			if !ok {
 				return nil

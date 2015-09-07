@@ -68,7 +68,11 @@ func (bc *BackendConn) Heartbeat() {
 			select {
 			case <-bc.hbStop:
 				return
+
 			case <-bc.hbTicker.C:
+				// stop Ticker会导致程序block在这个地方，因此增加了: hbStop来辅助stop的处理
+				// http://golang.org/pkg/time/#Ticker
+				// Stop turns off a ticker. After Stop, no more ticks will be sent. Stop does not close the channel, to prevent a read from the channel succeeding incorrectly.
 				log.Printf(Red("HB: %s"), bc.service)
 				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 					bc.hbTimeout <- true
