@@ -372,13 +372,6 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			return err
 		}
 
-		// 如果是心跳，则OK
-		if typeId == MESSAGE_TYPE_HEART_BEAT {
-			//			log.Printf(Magenta("Get Ping/Pang Back"))
-			bc.hbLastTime.Set(time.Now().Unix())
-			return nil
-		}
-
 		// 找到对应的Request
 		bc.Lock()
 		req, ok := bc.seqNum2Request[seqId]
@@ -386,6 +379,13 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			delete(bc.seqNum2Request, seqId)
 		}
 		bc.Unlock()
+
+		// 如果是心跳，则OK
+		if typeId == MESSAGE_TYPE_HEART_BEAT {
+			//			log.Printf(Magenta("Get Ping/Pang Back"))
+			bc.hbLastTime.Set(time.Now().Unix())
+			return nil
+		}
 
 		if !ok {
 			return errors.New("Invalid Response")
