@@ -159,7 +159,8 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 
 		// 2. 将结果写回给Client
 		if s.verbose {
-			log.Printf("Session#loopWriter --> client FrameSize: %d", len(r.Response.Data))
+			log.Printf("[%s]Session#loopWriter --> client FrameSize: %d",
+				r.Service, len(r.Response.Data))
 		}
 
 		// r.Response.Data ---> Client
