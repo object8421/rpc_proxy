@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -22,6 +23,14 @@ func fakeData(name string, typeId thrift.TMessageType, seqId int32, buf []byte) 
 // go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestRequest"
 //
 func TestRequest(t *testing.T) {
+
+	a := make([]byte, 1000)
+	c := a
+	d := a
+	var e []byte
+	fmt.Println("E: ", getSliceId(e), "A: ", getSliceId(c))
+	assert.True(t, getSliceId(c) == getSliceId(d))
+
 	data := make([]byte, 1000, 1000)
 	size := fakeData("demo:hello", thrift.CALL, 0, data[0:0])
 	data = data[0:size]

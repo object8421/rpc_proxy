@@ -114,16 +114,23 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 }
 
 func (r *Request) Recycle() {
+	var sliceId uintptr = 0
+
 	if r.Request.DataOrig != nil {
 		returnSlice(r.Request.DataOrig)
+		sliceId = getSliceId(r.Request.DataOrig)
+
 		r.Request.DataOrig = nil
 		r.Request.Data = nil
 	} else if r.Request.Data != nil {
+		sliceId = getSliceId(r.Request.Data)
 		returnSlice(r.Request.Data)
 		r.Request.Data = nil
 	}
 	if r.Response.Data != nil {
-		returnSlice(r.Response.Data)
+		if sliceId != getSliceId(r.Response.Data) {
+			returnSlice(r.Response.Data)
+		}
 		r.Response.Data = nil
 	}
 }

@@ -247,7 +247,7 @@ func (p *TBufferedFramedTransport) readFrameHeader() (int, error) {
 func (p *TBufferedFramedTransport) needFlush() bool {
 	if p.nbuffered != 0 {
 		// request个数 buffer到一定数量
-		if p.nbuffered > p.MaxBuffered {
+		if p.nbuffered >= p.MaxBuffered {
 			return true
 		}
 

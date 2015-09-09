@@ -8,6 +8,10 @@ import (
 	"unsafe"
 )
 
+const (
+	DEFAULT_SLICE_LEN = 1024
+)
+
 var memoryBuffer1024 chan []byte = make(chan []byte, 1000) // 1M
 var memoryBuffer2048 chan []byte = make(chan []byte, 1000) // 2M
 
@@ -20,7 +24,7 @@ func debugBuffer2048Size() int {
 }
 
 //
-// 自己管理内存： 申请
+// 自己管理内存： 申请(尽量不要使用，很容易出现错误)
 //
 // 实现逻辑: make([]byte, size, xxx)
 //
@@ -30,11 +34,11 @@ func getSlice(initSize int, capacity int) []byte {
 	}
 
 	var result []byte
-	if capacity < 1024 {
+	if capacity < DEFAULT_SLICE_LEN {
 		select {
 		case result = <-memoryBuffer1024:
 		default:
-			return make([]byte, initSize, 1024)
+			return make([]byte, initSize, DEFAULT_SLICE_LEN)
 		}
 	} else if capacity < 2048 {
 		select {
@@ -65,6 +69,10 @@ func initSlice(s []byte, initSize int) []byte {
 		h.Cap = cap(s)
 		return b
 	}
+}
+
+func getSliceId(s []byte) uintptr {
+	return (*reflect.SliceHeader)(unsafe.Pointer(&s)).Data
 }
 
 //

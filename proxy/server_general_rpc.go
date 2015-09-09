@@ -133,7 +133,7 @@ func (p *ThriftRpcServer) Dispatch(r *Request) error {
 	transport := NewTMemoryBufferWithBuf(r.Request.Data)
 	ip := thrift.NewTBinaryProtocolTransport(transport)
 
-	slice := getSlice(0, 1024)
+	slice := getSlice(0, DEFAULT_SLICE_LEN)
 	transport = NewTMemoryBufferWithBuf(slice)
 	op := thrift.NewTBinaryProtocolTransport(transport)
 	p.Processor.Process(ip, op)
@@ -141,7 +141,7 @@ func (p *ThriftRpcServer) Dispatch(r *Request) error {
 	r.Response.Data = transport.Bytes()
 
 	// 如果transport重新分配了内存，则立即归还slice
-	if cap(r.Response.Data) != 1024 {
+	if cap(r.Response.Data) != DEFAULT_SLICE_LEN {
 		returnSlice(slice)
 	}
 	return nil
