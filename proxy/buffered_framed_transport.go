@@ -90,10 +90,10 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 
 	bytes := getSlice(frameSize, frameSize)
 
-	//	var l int
-	_, err = p.Reader.Read(bytes)
+	var l int
+	l, err = p.Reader.Read(bytes)
 
-	//	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d"), frameSize, l)
+	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d"), frameSize, l)
 
 	if err != nil {
 		err1, ok := err.(thrift.TTransportException)
