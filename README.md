@@ -1,5 +1,9 @@
 # RPC Proxy
 基于Thrift的RPC Proxy
+相关的子项目:
+* [RPC Proxy Java SDK](https://git.chunyu.me/infra/rpc_proxy_java)
+* [RPC Proxy Python SDK](https://git.chunyu.me/infra/rpc_proxy_python)
+
 ## RPC的分层
 Rpc Proxy分为4层，从前端往后端依次标记为L1, L2, L3, L4
 ### L1层(应用层)
