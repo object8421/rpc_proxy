@@ -135,8 +135,6 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 		//    出错了如何处理呢?
 		s.handleResponse(r)
 		// 2. 将结果写回给Client
-		//		log.Printf("-----> Session Write back to client: %s\n", string(r.Response.Data))
-		//		log.Printf("-----> Write Back Frame Length: %d\n", len(r.Response.Data))
 		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)

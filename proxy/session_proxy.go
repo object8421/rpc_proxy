@@ -23,7 +23,6 @@ type Session struct {
 	CreateUnix    int64
 
 	quit    bool
-	failed  atomic2.Bool
 	closed  atomic2.Bool
 	verbose bool
 }
@@ -45,7 +44,7 @@ func (s *Session) String() string {
 
 // c： client <---> proxy之间的连接
 func NewSession(c thrift.TTransport, address string, verbose bool) *Session {
-	return NewSessionSize(c, address, verbose, 1024*32, 1800)
+	return NewSessionSize(c, address, verbose, 1024*32, 5000)
 }
 
 func NewSessionSize(c thrift.TTransport, address string, verbose bool,
@@ -65,7 +64,6 @@ func NewSessionSize(c thrift.TTransport, address string, verbose bool,
 }
 
 func (s *Session) Close() error {
-	s.failed.Set(true)
 	s.closed.Set(true)
 	log.Printf(Red("Close Proxy Session"))
 	return s.TBufferedFramedTransport.Close()
@@ -161,10 +159,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 
 		// 2. 将结果写回给Client
 		if s.verbose {
-			log.Printf("Session#loopWriter --> client[%d]: %s", len(r.Response.Data), Cyan(string(r.Response.Data)))
-
-			//			r1 := NewRequest(r.Response.Data, true)
-			//			log.Printf("====> Service: %s, Name: %s, Seq: %d, Type: %d", r1.Service, r1.Request.Name, r1.Request.SeqId, r1.Request.TypeId)
+			log.Printf("Session#loopWriter --> client FrameSize: %d", len(r.Response.Data))
 		}
 
 		// r.Response.Data ---> Client
@@ -197,7 +192,7 @@ func (s *Session) handleResponse(r *Request) {
 	if r.Response.Err != nil {
 
 		r.Response.Data = GetThriftException(r, "proxy_session")
-		log.Printf(Magenta("---->Convert Error Back to Exception: %s"), string(r.Response.Data))
+		log.Printf(Magenta("---->Convert Error Back to Exception"))
 	}
 
 	// 如何处理Data和Err呢?
@@ -219,12 +214,6 @@ func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) 
 	// 交给Dispatch
 	// Router
 	return r, d.Dispatch(r)
-}
-
-func (s *Session) handleQuit(r *Request) (*Request, error) {
-	s.quit = true
-	//	r.Response.Resp = redis.NewString([]byte("OK"))
-	return r, nil
 }
 
 func microseconds() int64 {
