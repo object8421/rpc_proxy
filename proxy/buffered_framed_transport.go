@@ -90,10 +90,15 @@ func (p *TBufferedFramedTransport) ReadFrame() (frame []byte, err error) {
 
 	bytes := getSlice(frameSize, frameSize)
 
+	// 什么时候会出现?
+	// 1. 如果tcp package比较大，则容易出现package的一部分先到，另一部分随后再到
+	// 2. 在同一个机器上的两个进程之间出现的概率低(Time Delay小); 跨机器访问，出现概率高
 	var l int
-	l, err = p.Reader.Read(bytes)
-
-	log.Printf(Red("<==== ReadFrame frame size: %d, Got: %d"), frameSize, l)
+	l, err = io.ReadFull(p.Reader, bytes)
+	//	l, err = p.Reader.Read(bytes)
+	if l != frameSize {
+		log.Warnf(Red("<==== ReadFrame frame size: %d, Got: %d"), frameSize, l)
+	}
 
 	if err != nil {
 		err1, ok := err.(thrift.TTransportException)
