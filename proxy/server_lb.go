@@ -31,6 +31,7 @@ type ThriftLoadBalanceServer struct {
 	backendService  *BackServiceLB
 	exitEvt         chan bool
 	lastRequestTime atomic2.Int64
+	config          *utils.Config
 }
 
 func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
@@ -38,6 +39,7 @@ func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
 
 	// 前端对接rpc_proxy
 	p := &ThriftLoadBalanceServer{
+		config:       config,
 		zkAddr:       config.ZkAddr,
 		productName:  config.ProductName,
 		serviceName:  config.Service,

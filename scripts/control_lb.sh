@@ -39,8 +39,12 @@ function start() {
         echo "Config file $conf doesn't exist, creating one."
         exit -1
     fi
+	
+	GIT_URL=`git config --get remote.origin.url`
+	GIT_VERSION=`git rev-parse --short HEAD`
+	
 	# 每次重启之后 stdfile被覆盖
-    nohup $app -c $conf -L $logfile &> $stdfile &
+    nohup $app -c $conf -L $logfile --work-dir=${WORKSPACE} --code-url-version="${GIT_URL}@${GIT_VERSION}" &> $stdfile &
     echo $! > $pidfile
     echo "$app started..., pid=$!"
 }

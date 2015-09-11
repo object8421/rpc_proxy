@@ -30,6 +30,10 @@ type Config struct {
 	ProxyAddr string
 	Profile   bool
 	Verbose   bool
+
+	// 提供给dashboard来查看服务状态
+	WorkDir        string
+	CodeUrlVersion string
 }
 
 //

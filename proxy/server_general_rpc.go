@@ -71,7 +71,7 @@ func GetServiceIdentity(frontendAddr string) string {
 // 去ZK注册当前的Service
 //
 func RegisterService(serviceName, frontendAddr, serviceId string,
-	topo *zk.Topology, evtExit chan interface{}) *ServiceEndpoint {
+	topo *zk.Topology, evtExit chan interface{}, workDir string, codeUrlVerion string) *ServiceEndpoint {
 
 	// 1. 准备数据
 	// 记录Service Endpoint的信息
@@ -81,7 +81,9 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 	evtbus := make(chan interface{})
 
 	// 2. 将信息添加到Zk中, 并且监控Zk的状态(如果添加失败会怎么样?)
-	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr)
+	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr, workDir, CodeUrlVerion)
+
+	// deployPath
 
 	// 为了保证Add是干净的，需要先删除，保证自己才是Owner
 	endpoint.DeleteServiceEndpoint(topo)

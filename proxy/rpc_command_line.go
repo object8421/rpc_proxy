@@ -14,7 +14,7 @@ import (
 )
 
 var usage = `Usage: 
-  %s -c <config_file> [-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>] [--profile-addr=<profile-addr>]
+  %s -c <config_file> [-L <log_file>] [--log-level=<loglevel>] [--log-keep-days=<maxdays>] [--profile-addr=<profile-addr>] [--work-dir=<work-dir>] [--code-url-version=<code-url-version>]
   %s -V | --version
 
 options:
@@ -23,6 +23,8 @@ options:
    --log-level=<loglevel>	set log level: info, warn, error, debug [default: info]
    --log-keep-days=<maxdays>  set max log file keep days, default is 3 days
    --profile-addr=<profile-addr>
+   --work-dir=<work-dir>
+   --code-url-version=<code-url-version>
 `
 
 func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
@@ -81,12 +83,24 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 		SetLogLevel(s)
 	}
 
+	workDir := args["--work-dir"].(string)
+	codeUrlVersion := args["--code-url-version"].(string)
+	if len(workDir) == 0 {
+		workDir, _ = os.Getwd()
+	}
+
+	log.Printf("WorkDir: %s, CodeUrl: %s, Wd: %s", workDir, codeUrlVersion)
+
 	// 3. 解析Config
 	configFile := args["-c"].(string)
 	conf, err := utils.LoadConf(configFile)
 	if err != nil {
 		log.PanicErrorf(err, "load config failed")
 	}
+
+	// 额外的配置信息
+	conf.WorkDir = workDir
+	conf.CodeUrlVersion = codeUrlVersion
 
 	if configCheck != nil {
 		configCheck(conf)

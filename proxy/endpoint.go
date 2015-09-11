@@ -8,20 +8,39 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	zk "git.chunyu.me/infra/rpc_proxy/zk"
 	"git.chunyu.me/infra/zkhelper"
+	"os"
 	os_path "path"
+	"time"
 )
 
 type ServiceEndpoint struct {
-	Service   string `json:"service"`
-	ServiceId string `json:"service_id"`
-	Frontend  string `json:"frontend"`
+	Service       string `json:"service"`
+	ServiceId     string `json:"service_id"`
+	Frontend      string `json:"frontend"`
+	DeployPath    string `json:"deploy_path"`
+	CodeUrlVerion string `json:"code_url_version"`
+	Hostname      string `json:"hostname"`
+	StartTime     string `json:"start_time"`
 }
 
-func NewServiceEndpoint(service string, serviceId string, frontend string) *ServiceEndpoint {
+func NewServiceEndpoint(service string, serviceId string, frontend string,
+	deployPath string, codeUrlVerion string) *ServiceEndpoint {
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "Unknown"
+	}
+
+	startTime := FormatYYYYmmDDHHMMSS(time.Now())
+
 	return &ServiceEndpoint{
-		Service:   service,
-		ServiceId: serviceId,
-		Frontend:  frontend,
+		Service:       service,
+		ServiceId:     serviceId,
+		Frontend:      frontend,
+		DeployPath:    deployPath,
+		CodeUrlVerion: codeUrlVerion,
+		Hostname:      hostname,
+		StartTime:     startTime,
 	}
 }
 
