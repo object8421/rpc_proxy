@@ -73,7 +73,8 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	// 注册服务
 	evtExit := make(chan interface{})
-	serviceEndpoint := RegisterService(p.serviceName, p.frontendAddr, p.lbServiceName, p.topo, evtExit)
+	serviceEndpoint := RegisterService(p.serviceName, p.frontendAddr, p.lbServiceName,
+		p.topo, evtExit, p.config.WorkDir, p.config.CodeUrlVersion)
 
 	//	var suideTime time.Time
 

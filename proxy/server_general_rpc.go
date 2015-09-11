@@ -35,12 +35,14 @@ type ThriftRpcServer struct {
 	Processor       thrift.TProcessor
 	Verbose         bool
 	lastRequestTime atomic2.Int64
+	config          *utils.Config
 }
 
 func NewThriftRpcServer(config *utils.Config, processor thrift.TProcessor) *ThriftRpcServer {
 	log.Printf("FrontAddr: %s\n", Magenta(config.FrontendAddr))
 
 	return &ThriftRpcServer{
+		config:       config,
 		ZkAddr:       config.ZkAddr,
 		ProductName:  config.ProductName,
 		ServiceName:  config.Service,
@@ -71,7 +73,8 @@ func GetServiceIdentity(frontendAddr string) string {
 // 去ZK注册当前的Service
 //
 func RegisterService(serviceName, frontendAddr, serviceId string,
-	topo *zk.Topology, evtExit chan interface{}, workDir string, codeUrlVerion string) *ServiceEndpoint {
+	topo *zk.Topology, evtExit chan interface{},
+	workDir string, codeUrlVerion string) *ServiceEndpoint {
 
 	// 1. 准备数据
 	// 记录Service Endpoint的信息
@@ -81,7 +84,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 	evtbus := make(chan interface{})
 
 	// 2. 将信息添加到Zk中, 并且监控Zk的状态(如果添加失败会怎么样?)
-	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr, workDir, CodeUrlVerion)
+	endpoint := NewServiceEndpoint(serviceName, serviceId, frontendAddr, workDir, codeUrlVerion)
 
 	// deployPath
 
@@ -165,7 +168,8 @@ func (p *ThriftRpcServer) Run() {
 
 	// 注册服务
 	evtExit := make(chan interface{})
-	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName, p.Topo, evtExit)
+	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName,
+		p.Topo, evtExit, p.config.WorkDir, p.config.CodeUrlVersion)
 
 	// 3. 读取"前端"的配置
 	var transport thrift.TServerTransport
