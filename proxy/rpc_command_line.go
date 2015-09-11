@@ -83,8 +83,9 @@ func RpcMain(binaryName string, serviceDesc string, configCheck ConfigCheck,
 		SetLogLevel(s)
 	}
 
-	workDir := args["--work-dir"].(string)
-	codeUrlVersion := args["--code-url-version"].(string)
+	// 没有就没有
+	workDir, _ := args["--work-dir"].(string)
+	codeUrlVersion, _ := args["--code-url-version"].(string)
 	if len(workDir) == 0 {
 		workDir, _ = os.Getwd()
 	}

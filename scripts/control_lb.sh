@@ -88,7 +88,7 @@ function status() {
 
 # 查看最新的Log文件
 function tailf() {
-	date=`date +"%Y%m%d"`
+    date=`date +"%Y%m%d"`
     tail -Fn 200 "${logfile}-${date}"	
 }
 
