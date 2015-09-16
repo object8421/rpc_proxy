@@ -144,18 +144,20 @@ func StartTicker(falconClient string, service string) {
 
 	}()
 
-	// 死循环: 最终进程退出时自动被杀掉
-	var t time.Time
-	for t = range cmdstats.ticker.C {
-		// 到了指定的时间点之后将过去一分钟的统计数据转移到:
-		cmdstats.rwlck.Lock()
-		cmdstats.histMaps <- &OpStatsInfo{
-			opmap:     cmdstats.opmap,
-			timestamp: t,
+	go func() {
+		// 死循环: 最终进程退出时自动被杀掉
+		var t time.Time
+		for t = range cmdstats.ticker.C {
+			// 到了指定的时间点之后将过去一分钟的统计数据转移到:
+			cmdstats.rwlck.Lock()
+			cmdstats.histMaps <- &OpStatsInfo{
+				opmap:     cmdstats.opmap,
+				timestamp: t,
+			}
+			cmdstats.opmap = make(map[string]*OpStats)
+			cmdstats.rwlck.Unlock()
 		}
-		cmdstats.opmap = make(map[string]*OpStats)
-		cmdstats.rwlck.Unlock()
-	}
+	}()
 }
 
 func OpCounts() int64 {
