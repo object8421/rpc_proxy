@@ -73,18 +73,13 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 		//		log.Printf(Magenta("---->Convert Error Back to Exception:[%d] %s\n"), len(errMsg), string(errMsg))
 		r.Response.Data = errMsg
 
-		incrOpStats("failed_request", microseconds()-r.Start)
-
 		return nil
 	} else {
 		//		if s.verbose {
 		//			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.serviceName)
 		//		}
 		backendConn.PushBack(r)
-
-		r.Wait.Wait()
-
-		incrOpStats(r.Request.Name, microseconds()-r.Start)
+		r.Wait.Wait() // 等待处理完毕
 
 		return nil
 	}

@@ -158,9 +158,9 @@ func OpCounts() int64 {
 	return cmdstats.requests.Get()
 }
 
-func GetOpStats(opstr string, create bool) *OpStats {
+func GetOpStats(methodName string, create bool) *OpStats {
 	cmdstats.rwlck.RLock()
-	s := cmdstats.opmap[opstr]
+	s := cmdstats.opmap[methodName]
 	cmdstats.rwlck.RUnlock()
 
 	if s != nil || !create {
@@ -168,10 +168,10 @@ func GetOpStats(opstr string, create bool) *OpStats {
 	}
 
 	cmdstats.rwlck.Lock()
-	s = cmdstats.opmap[opstr]
+	s = cmdstats.opmap[methodName]
 	if s == nil {
-		s = &OpStats{opstr: opstr}
-		cmdstats.opmap[opstr] = s
+		s = &OpStats{opstr: methodName}
+		cmdstats.opmap[methodName] = s
 	}
 	cmdstats.rwlck.Unlock()
 	return s
@@ -187,8 +187,8 @@ func GetAllOpStats() []*OpStats {
 	return all
 }
 
-func incrOpStats(opstr string, usecs int64) {
-	s := GetOpStats(opstr, true)
+func incrOpStats(methodName string, usecs int64) {
+	s := GetOpStats(methodName, true)
 	s.calls.Incr()
 	s.usecs.Add(usecs)
 	cmdstats.requests.Incr()

@@ -32,7 +32,6 @@ type Request struct {
 		DataOrig []byte
 	}
 
-	OpStr string
 	Start int64
 
 	// 返回的数据类型

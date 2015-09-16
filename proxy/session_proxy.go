@@ -181,7 +181,7 @@ func (s *Session) handleResponse(r *Request) {
 	}
 
 	// 如何处理Data和Err呢?
-	incrOpStats(r.OpStr, microseconds()-r.Start)
+	incrOpStats(r.Request.Name, microseconds()-r.Start)
 }
 
 // 处理来自Client的请求
