@@ -138,7 +138,9 @@ func StartTicker(falconClient string, service string) {
 			// 准备发送数据到Local Agent
 			// 10s timeout
 			log.Printf("Send %d Metrics....", len(metrics))
-			utils.SendData(metrics, falconClient, time.Second*10)
+			if len(metrics) > 0 {
+				utils.SendData(metrics, falconClient, time.Second*10)
+			}
 
 		}
 
