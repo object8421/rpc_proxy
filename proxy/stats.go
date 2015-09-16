@@ -125,7 +125,7 @@ func StartTicker(falconClient string, service string) {
 				metricAvg := &utils.MetaData{
 					Metric:      fmt.Sprintf("%s.%s.avgrt", service, method),
 					Endpoint:    hostname,
-					Value:       stats.USecsPerCall(),
+					Value:       float64(stats.USecsPerCall()) * 0.001, // 单位: ms
 					CounterType: utils.DATA_TYPE_GAUGE,
 					Tags:        EMPTY_STR,
 					Timestamp:   t,

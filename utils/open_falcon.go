@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	//	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -40,6 +41,7 @@ func Hostname() string {
 func SendData(data []*MetaData, falconClient string, timeout time.Duration) ([]byte, error) {
 
 	js, err := json.Marshal(data)
+	//	log.Print("MetricsData: ", js)
 	if err != nil {
 		return nil, err
 	}
