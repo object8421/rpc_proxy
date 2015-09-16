@@ -166,6 +166,8 @@ func (p *ThriftRpcServer) Run() {
 	// kill -9 pid
 	// kill -s SIGKILL pid 还是留给运维吧
 
+	StartTicker(p.config.FalconClient, p.ProductName)
+
 	// 注册服务
 	evtExit := make(chan interface{})
 	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName,
