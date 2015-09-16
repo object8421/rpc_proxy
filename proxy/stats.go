@@ -11,6 +11,7 @@ import (
 
 	"git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
+	"git.chunyu.me/infra/rpc_proxy/utils/log"
 )
 
 //
@@ -93,6 +94,8 @@ func StartTicker(falconClient string, service string) {
 		return
 	}
 
+	log.Printf(Green("Log to falconClient: %s"), falconClient)
+
 	cmdstats.histMaps = make(chan *OpStatsInfo, 5)
 	cmdstats.ticker = time.NewTicker(time.Minute)
 
@@ -134,6 +137,7 @@ func StartTicker(falconClient string, service string) {
 
 			// 准备发送数据到Local Agent
 			// 10s timeout
+			log.Printf("Send %d Metrics....", len(metrics))
 			utils.SendData(metrics, falconClient, time.Second*10)
 
 		}
