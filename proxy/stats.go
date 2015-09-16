@@ -5,15 +5,21 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
+	"time"
 
+	"git.chunyu.me/infra/rpc_proxy/utils"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 )
 
+//
+// 单个的统计指标
+//
 type OpStats struct {
 	opstr string
-	calls atomic2.Int64
-	usecs atomic2.Int64
+	calls atomic2.Int64 // 次数
+	usecs atomic2.Int64 // 总时间(us)
 }
 
 func (s *OpStats) OpStr() string {
@@ -26,6 +32,14 @@ func (s *OpStats) Calls() int64 {
 
 func (s *OpStats) USecs() int64 {
 	return s.usecs.Get()
+}
+
+func (s *OpStats) USecsPerCall() int64 {
+	var perusecs int64 = 0
+	if s.calls.Get() != 0 {
+		perusecs = s.usecs.Get() / s.calls.Get()
+	}
+	return perusecs
 }
 
 func (s *OpStats) MarshalJSON() ([]byte, error) {
@@ -45,24 +59,108 @@ func (s *OpStats) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+//
+// 所有的Commands的统计信息
+//
 var cmdstats struct {
 	requests atomic2.Int64
 
 	opmap map[string]*OpStats
-	rwlck sync.RWMutex
+
+	histMaps chan *OpStatsInfo
+	rwlck    sync.RWMutex
+	ticker   *time.Ticker
+	start    sync.Once
+}
+
+type OpStatsInfo struct {
+	opmap     map[string]*OpStats
+	timestamp time.Time
 }
 
 func init() {
 	cmdstats.opmap = make(map[string]*OpStats)
 }
 
+const (
+	EMPTY_STR = ""
+)
+
+// 主动调用
+func StartTicker(falconClient string, service string) {
+	// 如果没有监控配置，则直接返回
+	if len(falconClient) == 0 {
+		return
+	}
+
+	cmdstats.histMaps = make(chan *OpStatsInfo, 5)
+	cmdstats.ticker = time.NewTicker(time.Minute)
+
+	var statsInfo *OpStatsInfo
+	hostname := utils.Hostname()
+	go func() {
+		for true {
+			statsInfo = <-cmdstats.histMaps
+
+			// 准备发送
+			// 需要处理timeout
+			metrics := make([]*utils.MetaData, 0, 3)
+			t := statsInfo.timestamp.Unix()
+
+			for method, stats := range statsInfo.opmap {
+
+				metricCount := &utils.MetaData{
+					Metric:      fmt.Sprintf("%s.%s.calls", service, method),
+					Endpoint:    hostname,
+					Value:       stats.Calls(),
+					CounterType: utils.DATA_TYPE_GAUGE,
+					Tags:        EMPTY_STR,
+					Timestamp:   t,
+					Step:        60, // 一分钟一次采样
+				}
+
+				metricAvg := &utils.MetaData{
+					Metric:      fmt.Sprintf("%s.%s.avgrt", service, method),
+					Endpoint:    hostname,
+					Value:       stats.USecsPerCall(),
+					CounterType: utils.DATA_TYPE_GAUGE,
+					Tags:        EMPTY_STR,
+					Timestamp:   t,
+					Step:        60, // 一分钟一次采样
+				}
+
+				metrics = append(metrics, metricCount, metricAvg)
+			}
+
+			// 准备发送数据到Local Agent
+			// 10s timeout
+			utils.SendData(metrics, falconClient, time.Second*10)
+
+		}
+
+	}()
+
+	// 死循环: 最终进程退出时自动被杀掉
+	var t time.Time
+	for t = range cmdstats.ticker.C {
+		// 到了指定的时间点之后将过去一分钟的统计数据转移到:
+		cmdstats.rwlck.Lock()
+		cmdstats.histMaps <- &OpStatsInfo{
+			opmap:     cmdstats.opmap,
+			timestamp: t,
+		}
+		cmdstats.opmap = make(map[string]*OpStats)
+		cmdstats.rwlck.Unlock()
+	}
+}
+
 func OpCounts() int64 {
 	return cmdstats.requests.Get()
 }
 
-func GetOpStats(opstr string, create bool) *OpStats {
+func GetOpStats(methodName string, create bool) *OpStats {
 	cmdstats.rwlck.RLock()
-	s := cmdstats.opmap[opstr]
+	s := cmdstats.opmap[methodName]
 	cmdstats.rwlck.RUnlock()
 
 	if s != nil || !create {
@@ -70,10 +168,10 @@ func GetOpStats(opstr string, create bool) *OpStats {
 	}
 
 	cmdstats.rwlck.Lock()
-	s = cmdstats.opmap[opstr]
+	s = cmdstats.opmap[methodName]
 	if s == nil {
-		s = &OpStats{opstr: opstr}
-		cmdstats.opmap[opstr] = s
+		s = &OpStats{opstr: methodName}
+		cmdstats.opmap[methodName] = s
 	}
 	cmdstats.rwlck.Unlock()
 	return s
@@ -89,8 +187,8 @@ func GetAllOpStats() []*OpStats {
 	return all
 }
 
-func incrOpStats(opstr string, usecs int64) {
-	s := GetOpStats(opstr, true)
+func incrOpStats(methodName string, usecs int64) {
+	s := GetOpStats(methodName, true)
 	s.calls.Incr()
 	s.usecs.Add(usecs)
 	cmdstats.requests.Incr()

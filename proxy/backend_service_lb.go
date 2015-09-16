@@ -34,7 +34,7 @@ type BackServiceLB struct {
 
 // 创建一个BackService
 func NewBackServiceLB(serviceName string, backendAddr string, verbose bool,
-	exitEvt chan bool) *BackServiceLB {
+	falconClient string, exitEvt chan bool) *BackServiceLB {
 
 	service := &BackServiceLB{
 		serviceName:      serviceName,
@@ -47,12 +47,15 @@ func NewBackServiceLB(serviceName string, backendAddr string, verbose bool,
 	}
 
 	service.run()
+
+	StartTicker(falconClient, serviceName)
 	return service
 
 }
 
 //
 // 后端如何处理一个Request, 处理完毕之后直接返回，因为Caller已经做好异步处理了
+// Dispatch完毕之后，Request中带有完整的结果
 //
 func (s *BackServiceLB) Dispatch(r *Request) error {
 	backendConn := s.nextBackendConn()
@@ -76,8 +79,7 @@ func (s *BackServiceLB) Dispatch(r *Request) error {
 		//			log.Println("SendMessage With: ", backendConn.Addr4Log(), "For Service: ", s.serviceName)
 		//		}
 		backendConn.PushBack(r)
-
-		r.Wait.Wait()
+		r.Wait.Wait() // 等待处理完毕
 
 		return nil
 	}

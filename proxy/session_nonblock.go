@@ -3,7 +3,6 @@
 package proxy
 
 import (
-	"encoding/json"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
@@ -29,21 +28,6 @@ type NonBlockSession struct {
 	verbose bool
 
 	lastRequestTime *atomic2.Int64
-}
-
-// 返回当前Session的状态
-func (s *NonBlockSession) String() string {
-	o := &struct {
-		Ops        int64  `json:"ops"`
-		LastOpUnix int64  `json:"lastop"`
-		CreateUnix int64  `json:"create"`
-		RemoteAddr string `json:"remote"`
-	}{
-		s.Ops, s.LastOpUnix, s.CreateUnix,
-		s.RemoteAddress,
-	}
-	b, _ := json.Marshal(o)
-	return string(b)
 }
 
 func NewNonBlockSession(c thrift.TTransport, address string, verbose bool,
@@ -118,7 +102,8 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		go func() {
 			// 异步执行
 			r, _ := s.handleRequest(request, d)
-			//			log.Info("Succeed Get Result")
+
+			// 数据请求完毕之后，将Request交给tasks, 然后再写回Client
 			tasks <- r
 			wait.Done()
 		}()
@@ -129,11 +114,18 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 	return
 }
 
+//
+//
+// NonBlock和Block的区别:
+// NonBlock的 Request和Response是不需要配对的， Request和Response是独立的，例如:
+//  ---> RequestA, RequestB
+//  <--- RequestB, RequestA 后请求的，可以先返回
+//
 func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 	for r := range tasks {
-		// 1. 等待Request对应的Response
-		//    出错了如何处理呢?
+		// 1. tasks中的请求是已经请求完毕的，loopWriter负责将它们的数据写回到rpc proxy
 		s.handleResponse(r)
+
 		// 2. 将结果写回给Client
 		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
@@ -142,7 +134,7 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 		}
 
 		// 3. Flush
-		err = s.TBufferedFramedTransport.FlushBuffer(true) // len(tasks) == 0
+		err = s.TBufferedFramedTransport.FlushBuffer(len(tasks) == 0) // len(tasks) == 0
 		if err != nil {
 			return err
 		}
@@ -152,8 +144,6 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 
 // 获取可以直接返回给Client的response
 func (s *NonBlockSession) handleResponse(r *Request) {
-	// 等待结果的出现
-	r.Wait.Wait()
 
 	// 将Err转换成为Exception
 	if r.Response.Err != nil {
@@ -161,10 +151,12 @@ func (s *NonBlockSession) handleResponse(r *Request) {
 		r.Response.Data = GetThriftException(r, "nonblock_session")
 	}
 
-	incrOpStats(r.OpStr, microseconds()-r.Start)
+	incrOpStats(r.Request.Name, microseconds()-r.Start)
 }
 
 // 处理来自Client的请求
+// 将它的请教交给后端的Dispatcher
+//
 func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request, error) {
 	// 构建Request
 	//	log.Printf("HandleRequest: %s\n", string(request))

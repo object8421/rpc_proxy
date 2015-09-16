@@ -32,7 +32,6 @@ type Request struct {
 		DataOrig []byte
 	}
 
-	OpStr string
 	Start int64
 
 	// 返回的数据类型
@@ -55,6 +54,7 @@ func NewRequest(data []byte, serviceInReq bool) *Request {
 	request := &Request{
 		Wait:         &sync.WaitGroup{},
 		ProxyRequest: serviceInReq,
+		Start:        microseconds(),
 	}
 	request.Request.Data = data
 	request.DecodeRequest()
