@@ -75,6 +75,7 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 		for task := range tasks {
 			task.Recycle()
 		}
+		log.Warnf(Red("Session Server Over"))
 	}()
 
 	// 从Client读取用户的请求，然后再交给Dispatcher来处理
