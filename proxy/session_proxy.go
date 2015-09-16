@@ -3,7 +3,6 @@
 package proxy
 
 import (
-	"encoding/json"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
@@ -25,21 +24,6 @@ type Session struct {
 	quit    bool
 	closed  atomic2.Bool
 	verbose bool
-}
-
-// 返回当前Session的状态
-func (s *Session) String() string {
-	o := &struct {
-		Ops        int64  `json:"ops"`
-		LastOpUnix int64  `json:"lastop"`
-		CreateUnix int64  `json:"create"`
-		RemoteAddr string `json:"remote"`
-	}{
-		s.Ops, s.LastOpUnix, s.CreateUnix,
-		s.RemoteAddress,
-	}
-	b, _ := json.Marshal(o)
-	return string(b)
 }
 
 // c： client <---> proxy之间的连接

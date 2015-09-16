@@ -34,6 +34,9 @@ type Config struct {
 	// 提供给dashboard来查看服务状态
 	WorkDir        string
 	CodeUrlVersion string
+
+	// 用于监控
+	FalconClient string
 }
 
 //
@@ -120,6 +123,8 @@ func LoadConf(configFile string) (*Config, error) {
 
 	conf.ProxyAddr, _ = c.ReadString("proxy_address", "")
 	conf.ProxyAddr = strings.TrimSpace(conf.ProxyAddr)
+
+	conf.FalconClient, _ = c.ReadString("falcon_client", "")
 
 	profile, _ := c.ReadInt("profile", 0)
 	conf.Profile = profile == 1

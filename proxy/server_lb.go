@@ -53,7 +53,8 @@ func NewThriftLoadBalanceServer(config *utils.Config) *ThriftLoadBalanceServer {
 	p.lbServiceName = GetServiceIdentity(p.frontendAddr)
 
 	// 后端对接: 各种python的rpc server
-	p.backendService = NewBackServiceLB(p.serviceName, p.backendAddr, p.verbose, p.exitEvt)
+	p.backendService = NewBackServiceLB(p.serviceName, p.backendAddr, p.verbose,
+		p.config.FalconClient, p.exitEvt)
 	return p
 
 }
