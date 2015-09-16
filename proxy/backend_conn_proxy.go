@@ -335,6 +335,7 @@ func (bc *BackendConn) flushRequests(err error) {
 	seqRequest := bc.seqNum2Request
 	bc.seqNum2Request = make(map[int32]*Request, 4096)
 	bc.Unlock()
+
 	threshold := time.Now().Add(-time.Second * 5)
 	for _, request := range seqRequest {
 		if request.Start > 0 {

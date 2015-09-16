@@ -60,42 +60,40 @@ func (s *Session) IsClosed() bool {
 func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 
 	var errlist errors.ErrorList
-	defer func() {
-		log.Infof(Red("==> Session Over: %s, Print Error List: %d Errors"),
-			s.RemoteAddress, errlist.Len())
-
-		// 只打印第一个Error
-		if err := errlist.First(); err != nil {
-			log.Infof("==> Session [%p] closed, Error = %v", s, err)
-		} else {
-			log.Infof("==> Session [%p] closed, Quit", s)
-		}
-	}()
 
 	// 来自connection的各种请求
 	tasks := make(chan *Request, maxPipeline)
 	go func() {
-		defer func() {
-			// 出现错误了，直接关闭Session
-			s.Close()
-
-			// 扔掉所有的Tasks
-			log.Warnf(Red("Session Closed, Abandon %d Tasks"), len(tasks))
-			for task := range tasks {
-				task.Recycle()
-			}
-		}()
 		if err := s.loopWriter(tasks); err != nil {
 			errlist.PushBack(err)
 		}
-	}()
 
-	defer close(tasks)
+		// 出现错误了，直接关闭Session
+		s.Close()
+		// 扔掉所有的Tasks
+		log.Warnf(Red("Session Closed, Abandon %d Tasks"), len(tasks))
+		for task := range tasks {
+			task.Recycle()
+		}
+	}()
 
 	// 从Client读取用户的请求，然后再交给Dispatcher来处理
 	if err := s.loopReader(tasks, d); err != nil {
 		errlist.PushBack(err)
 	}
+
+	close(tasks)
+
+	log.Infof(Red("==> Session Over: %s, Print Error List: %d Errors"),
+		s.RemoteAddress, errlist.Len())
+
+	// 只打印第一个Error
+	if err := errlist.First(); err != nil {
+		log.Infof("==> Session [%p] closed, Error = %v", s, err)
+	} else {
+		log.Infof("==> Session [%p] closed, Quit", s)
+	}
+
 	log.Info(Cyan("LoopReader Over, Session#Serve Over"))
 }
 
