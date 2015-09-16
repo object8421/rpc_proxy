@@ -142,6 +142,10 @@ func (bc *BackendConn) Addr() string {
 	return bc.addr
 }
 
+//
+// 目前有两类请求:
+// 1. ping request
+// 2. 正常的请求
 func (bc *BackendConn) PushBack(r *Request) {
 	if r.Wait != nil {
 		r.Wait.Add(1)
@@ -257,7 +261,7 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 		if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
 			// 过期的HB信号，直接放弃
 			if time.Now().Unix()-r.Start > 4 {
-				continue
+				log.Printf(Magenta("Expired HB Signal"))
 			}
 		}
 

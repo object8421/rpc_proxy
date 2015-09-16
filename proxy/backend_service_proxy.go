@@ -190,6 +190,7 @@ func (s *BackService) HandleRequest(req *Request) (err error) {
 		// 从errMsg来构建异常
 		errMsg := GetWorkerNotFoundData(req, "BackService")
 		req.Response.Data = errMsg
+		// XXX: 没有等待，req.Wait.Wait() 直接返回
 
 		return nil
 	} else {

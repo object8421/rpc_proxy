@@ -61,7 +61,7 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 
 	var errlist errors.ErrorList
 
-	// 来自connection的各种请求
+	// 已经交给Dispatch处理的Tasks, 在loopWriter中等待task的数据返回: task.Wait.Wait()
 	tasks := make(chan *Request, maxPipeline)
 	go func() {
 		if err := s.loopWriter(tasks); err != nil {
@@ -126,7 +126,8 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
 				log.Info("Succeed Get Result")
 			}
 
-			// 将请求交给: tasks, 同一个Session中的请求是
+			// 将请求交给: tasks
+			// 该Request应该被有效地处理
 			tasks <- r
 		}
 	}
