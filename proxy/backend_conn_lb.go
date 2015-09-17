@@ -170,7 +170,11 @@ func (bc *BackendConnLB) loopWriter() error {
 						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
 						if ok && (request.Start <= expired) {
 							// 如果存在，并且有过期的，则删除
-							bc.seqNumRequestMap.Remove(seqId)
+							if bc.seqNumRequestMap.Remove(seqId) {
+								request.Response.Err = errors.New(fmt.Sprintf("Timeout Exception, %s.%s",
+									request.Service, request.Request.Name))
+								request.Wait.Done()
+							}
 							log.Warnf(Red("Remove Expired Request: %s.%s"), request.Service, request.Request.Name)
 						} else {
 							break
