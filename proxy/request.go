@@ -3,6 +3,8 @@
 package proxy
 
 import (
+	"errors"
+	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"strings"
 	"sync"
@@ -57,6 +59,14 @@ func NewRequest(data []byte, serviceInReq bool) *Request {
 
 	return request
 
+}
+
+//
+// 利用自身信息生成 timeout Error
+//
+func (r *Request) NewTimeoutError() error {
+	return errors.New(fmt.Sprintf("Timeout Exception, %s.%s",
+		r.Service, r.Request.Name))
 }
 
 //

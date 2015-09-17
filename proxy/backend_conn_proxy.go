@@ -238,8 +238,7 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 						if ok && (request.Start <= expired) {
 							// 如果存在，并且有过期的，则删除
 							if bc.seqNumRequestMap.Remove(seqId) {
-								request.Response.Err = errors.New(fmt.Sprintf("Timeout Exception, %s.%s",
-									request.Service, request.Request.Name))
+								request.Response.Err = request.NewTimeoutError()
 								request.Wait.Done()
 							}
 
@@ -370,18 +369,19 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		// 找到对应的Request
 		req, ok := bc.seqNumRequestMap.Get(seqId)
 		if ok {
-			bc.seqNumRequestMap.Remove(seqId)
+			ok = bc.seqNumRequestMap.Remove(seqId)
 		}
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
-			//			log.Printf(Magenta("Get Ping/Pang Back"))
 			bc.hbLastTime.Set(time.Now().Unix())
 			return nil
 		}
 
 		if !ok {
-			return errors.New("Invalid Response")
+			// return errors.New("Invalid Response")
+			// 由于是异步返回，因此回来找不到也正常
+			return nil
 		}
 		if bc.verbose {
 			log.Printf("[%s]Data From Server, seqId: %d, Request: %d", req.Service, seqId, req.Request.SeqId)
@@ -390,13 +390,12 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		r.Response.TypeId = typeId
 	}
 
+	// 正常返回数据，或者报错
 	r.Response.Data, r.Response.Err = data, err
-
 	// 还原SeqId
 	if data != nil {
 		r.RestoreSeqId()
 	}
-
 	// 设置几个控制用的channel
 	r.Wait.Done()
 	return err

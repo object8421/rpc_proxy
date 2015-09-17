@@ -171,8 +171,7 @@ func (bc *BackendConnLB) loopWriter() error {
 						if ok && (request.Start <= expired) {
 							// 如果存在，并且有过期的，则删除
 							if bc.seqNumRequestMap.Remove(seqId) {
-								request.Response.Err = errors.New(fmt.Sprintf("Timeout Exception, %s.%s",
-									request.Service, request.Request.Name))
+								request.Response.Err = request.NewTimeoutError()
 								request.Wait.Done()
 							}
 							log.Warnf(Red("Remove Expired Request: %s.%s"), request.Service, request.Request.Name)
@@ -310,7 +309,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		req, ok := bc.seqNumRequestMap.Get(seqId)
 		if ok {
-			bc.seqNumRequestMap.Remove(seqId)
+			ok = bc.seqNumRequestMap.Remove(seqId)
 		}
 
 		// 如果是心跳，则OK
@@ -320,7 +319,8 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		}
 
 		if !ok {
-			return errors.New("Invalid Response")
+			// return errors.New("Invalid Response")
+			return nil
 		}
 
 		//		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
