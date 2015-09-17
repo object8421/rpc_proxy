@@ -111,13 +111,16 @@ func (c *RequestMap) Contains(key int32) (ok bool) {
 	return ok
 }
 
-// Remove removes the provided key from the cache.
-func (c *RequestMap) Remove(key int32) {
+// 删除指定的Key， 返回是否删除OK
+func (c *RequestMap) Remove(key int32) bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	if ent, ok := c.items[key]; ok {
 		c.removeElement(ent)
+		return true
+	} else {
+		return false
 	}
 }
 
