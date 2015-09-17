@@ -215,7 +215,7 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 	s.activeConnsLock.Lock()
 	defer s.activeConnsLock.Unlock()
 
-	log.Printf(Green("[%s]StateChanged: %s, Index: %d, Count: %d"), conn.serviceName, conn.addr4Log, conn.Index, len(s.activeConns))
+	log.Printf(Green("[%s]StateChanged: %s, Index: %d, Count: %d"), conn.serviceName, conn.address, conn.Index, len(s.activeConns))
 	if conn.IsConnActive.Get() {
 		// BackServiceLB 只有一个状态转移: Active --> Not Active
 		log.Printf(Magenta("Unexpected BackendConnLB State"))

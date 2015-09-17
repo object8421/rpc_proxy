@@ -3,7 +3,6 @@
 package proxy
 
 import (
-	"sync"
 	"time"
 
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
@@ -18,23 +17,19 @@ type BackendConnLBStateChanged interface {
 
 type BackendConnLB struct {
 	transport   thrift.TTransport
-	addr4Log    string
+	address     string
 	serviceName string
 	input       chan *Request // 输入的请求, 有: 1024个Buffer
 
-	// seqNum2Request 读写基本上差不多
-	sync.Mutex
-	seqNum2Request map[int32]*Request
-	currentSeqId   int32 // 范围: 1 ~ 100000
-	Index          int
-	delegate       BackendConnLBStateChanged
-	verbose        bool
-	IsConnActive   atomic2.Bool // 是否处于Active状态呢
+	seqNumRequestMap *RequestMap
+	currentSeqId     int32 // 范围: 1 ~ 100000
+	Index            int
+	delegate         BackendConnLBStateChanged
+	verbose          bool
+	IsConnActive     atomic2.Bool // 是否处于Active状态呢
 
 	hbLastTime atomic2.Int64
 	hbTicker   *time.Ticker
-	hbStop     chan bool
-	hbTimeout  chan bool
 }
 
 //
@@ -48,58 +43,24 @@ type BackendConnLB struct {
 //   2. 底层的conn在LB BackendService中accepts时就已经建立好，因此BackendConnLB
 //      就是建立在transport之上的控制逻辑
 //
-func NewBackendConnLB(transport thrift.TTransport, serviceName string, addr4Log string,
-	delegate BackendConnLBStateChanged, verbose bool) *BackendConnLB {
-
+func NewBackendConnLB(transport thrift.TTransport, serviceName string,
+	address string, delegate BackendConnLBStateChanged,
+	verbose bool) *BackendConnLB {
+	requestMap, _ := NewRequestMap(4096)
 	bc := &BackendConnLB{
-		transport:      transport,
-		addr4Log:       addr4Log,
-		serviceName:    serviceName,
-		input:          make(chan *Request, 1024),
-		seqNum2Request: make(map[int32]*Request, 4096),
-		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
-		Index:          INVALID_ARRAY_INDEX,
-		delegate:       delegate,
-		verbose:        verbose,
-		hbStop:         make(chan bool),
-		hbTimeout:      make(chan bool),
+		transport:        transport,
+		address:          address,
+		serviceName:      serviceName,
+		input:            make(chan *Request, 1024),
+		seqNumRequestMap: requestMap,
+		currentSeqId:     BACKEND_CONN_MIN_SEQ_ID,
+		Index:            INVALID_ARRAY_INDEX,
+		delegate:         delegate,
+		verbose:          verbose,
 	}
 	bc.IsConnActive.Set(true)
 	go bc.Run()
 	return bc
-}
-
-//
-// 发现心跳出现问题，就断开连接，结束ConnLB的生命周期
-//
-func (bc *BackendConnLB) Heartbeat() {
-	go func() {
-		bc.hbLastTime.Set(time.Now().Unix())
-
-	LOOP:
-		for true {
-			select {
-			// Ticker stop不会关闭: Channel
-			// http://golang.org/pkg/time/#Ticker
-			// Stop turns off a ticker. After Stop, no more ticks will be sent. Stop does not close the channel, to prevent a read from the channel succeeding incorrectly.
-			case <-bc.hbStop:
-				return
-			case <-bc.hbTicker.C:
-				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
-					bc.hbTimeout <- true
-					break LOOP
-				} else {
-					if bc.IsConnActive.Get() {
-						// 定时添加Ping的任务
-						r := NewPingRequest()
-						bc.PushBack(r)
-					} else {
-						break LOOP
-					}
-				}
-			}
-		}
-	}()
 }
 
 func (bc *BackendConnLB) MarkConnActiveFalse() {
@@ -114,7 +75,7 @@ func (bc *BackendConnLB) MarkConnActiveFalse() {
 
 // run之间 transport刚刚建立，因此服务的可靠性比较高
 func (bc *BackendConnLB) Run() {
-	log.Printf(Green("[%s]Add New BackendConnLB: %s\n"), bc.serviceName, bc.addr4Log)
+	log.Printf(Green("[%s]Add New BackendConnLB: %s\n"), bc.serviceName, bc.address)
 
 	// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 	err := bc.loopWriter()
@@ -123,7 +84,7 @@ func (bc *BackendConnLB) Run() {
 	//    可能出现异常，也可能正常退出(反正不干活了)
 	bc.MarkConnActiveFalse()
 
-	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.addr4Log)
+	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.address)
 
 	if err == nil {
 		// bc.input被关闭了，应该就没有 Request 了
@@ -138,7 +99,7 @@ func (bc *BackendConnLB) Run() {
 }
 
 func (bc *BackendConnLB) Addr4Log() string {
-	return bc.addr4Log
+	return bc.address
 }
 
 //
@@ -152,9 +113,7 @@ func (bc *BackendConnLB) PushBack(r *Request) {
 
 	r.Service = bc.serviceName
 
-	if r.Wait != nil {
-		r.Wait.Add(1)
-	}
+	r.Wait.Add(1)
 	bc.input <- r
 }
 
@@ -173,14 +132,16 @@ func (bc *BackendConnLB) loopWriter() error {
 	// bc.MarkConnActiveOK() // 准备接受数据
 	// BackendConnLB 在构造之初就有打开的transport, 并且Active默认为OK
 
-	bc.hbTicker = time.NewTicker(time.Second)
 	defer func() {
 		bc.hbTicker.Stop()
-		bc.hbStop <- true
+		bc.hbTicker = nil
 	}()
 
 	bc.loopReader(c) // 异步
-	bc.Heartbeat()   // 建立连接之后，就启动HB
+
+	// 建立连接之后，就启动HB
+	bc.hbTicker = time.NewTicker(time.Second)
+	bc.hbLastTime.Set(time.Now().Unix())
 
 	var r *Request
 	var ok bool
@@ -188,51 +149,70 @@ func (bc *BackendConnLB) loopWriter() error {
 	for true {
 		// 等待输入的Event, 或者 heartbeatTimeout
 		select {
+		case <-bc.hbTicker.C:
+			if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
+				return errors.New("HB timeout")
+			} else {
+				if bc.IsConnActive.Get() {
+					// 定时添加Ping的任务
+					r := NewPingRequest()
+					bc.PushBack(r)
+
+					// 同时检测当前的异常请求
+					expired := microseconds() - 1000000*5 // 以microsecond为单位
+					for true {
+						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
+						if ok && (request.Start <= expired) {
+							// 如果存在，并且有过期的，则删除
+							bc.seqNumRequestMap.Remove(seqId)
+							log.Warnf(Red("Remove Expired Request: %s.%s"), request.Service, request.Request.Name)
+						} else {
+							break
+						}
+					}
+				}
+			}
+
 		case r, ok = <-bc.input:
 			if !ok {
 				return nil
-			}
-		case <-bc.hbTimeout:
-			return errors.New("HB timeout")
-		}
-
-		// 如果暂时没有数据输入，则p策略可能就有问题了
-		// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
-		//
-		if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
-			// 过期的HB信号，直接放弃
-			if time.Now().Unix()-r.Start > 4 {
-				continue
 			} else {
-				//					log.Printf(Magenta("Send Heartbeat to %s\n"), bc.Addr4Log())
+				// 如果暂时没有数据输入，则p策略可能就有问题了
+				// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
+				//
+				if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+					// 过期的HB信号，直接放弃
+					if time.Now().Unix()-r.Start > 4 {
+						continue
+					}
+				}
+				var flush = len(bc.input) == 0
+				//		fmt.Printf("Force flush %t\n", flush)
+
+				// 1. 替换新的SeqId
+				r.ReplaceSeqId(bc.currentSeqId)
+
+				// 2. 主动控制Buffer的flush
+
+				//			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
+				c.Write(r.Request.Data)
+				err := c.FlushBuffer(flush)
+
+				if err == nil {
+
+					bc.IncreaseCurrentSeqId()
+					bc.seqNumRequestMap.Add(r.Response.SeqId, r)
+
+					// 继续读取请求, 如果有异常，如何处理呢?
+				} else {
+					log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
+
+					// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+					return bc.setResponse(r, nil, err)
+				}
 			}
 		}
-		var flush = len(bc.input) == 0
-		//		fmt.Printf("Force flush %t\n", flush)
 
-		// 1. 替换新的SeqId
-		r.ReplaceSeqId(bc.currentSeqId)
-
-		// 2. 主动控制Buffer的flush
-
-		//			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
-		c.Write(r.Request.Data)
-		err := c.FlushBuffer(flush)
-
-		if err == nil {
-
-			bc.IncreaseCurrentSeqId()
-			bc.Lock()
-			bc.seqNum2Request[r.Response.SeqId] = r
-			bc.Unlock()
-
-			// 继续读取请求, 如果有异常，如何处理呢?
-		} else {
-			log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
-
-			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-			return bc.setResponse(r, nil, err)
-		}
 	}
 	return nil
 }
@@ -277,10 +257,7 @@ func (bc *BackendConnLB) flushRequests(err error) {
 	// 告诉BackendService, 不再接受新的请求
 	bc.MarkConnActiveFalse()
 
-	bc.Lock()
-	seqRequest := bc.seqNum2Request
-	bc.seqNum2Request = make(map[int32]*Request)
-	bc.Unlock()
+	seqRequest := bc.seqNumRequestMap.Purge()
 
 	for _, request := range seqRequest {
 		if request.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
@@ -288,9 +265,7 @@ func (bc *BackendConnLB) flushRequests(err error) {
 		} else {
 			log.Printf(Red("Handle Failed Request: %s.%s"), request.Service, request.Request.Name)
 			request.Response.Err = err
-			if request.Wait != nil {
-				request.Wait.Done()
-			}
+			request.Wait.Done()
 		}
 	}
 
@@ -323,12 +298,11 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		}
 
 		// 找到对应的Request
-		bc.Lock()
-		req, ok := bc.seqNum2Request[seqId]
+
+		req, ok := bc.seqNumRequestMap.Get(seqId)
 		if ok {
-			delete(bc.seqNum2Request, seqId)
+			bc.seqNumRequestMap.Remove(seqId)
 		}
-		bc.Unlock()
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
@@ -351,14 +325,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		r.RestoreSeqId()
 	}
 
-	// 设置几个控制用的channel
-	if err != nil && r.Failed != nil {
-		r.Failed.Set(true)
-	}
-	if r.Wait != nil {
-		r.Wait.Done()
-	}
-
+	r.Wait.Done()
 	return err
 }
 

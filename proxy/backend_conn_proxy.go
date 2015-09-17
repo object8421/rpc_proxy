@@ -5,7 +5,6 @@ package proxy
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
@@ -24,9 +23,8 @@ type BackendConn struct {
 	input   chan *Request // 输入的请求, 有: 1024个Buffer
 
 	// seqNum2Request 读写基本上差不多
-	sync.Mutex
-	seqNum2Request map[int32]*Request
-	currentSeqId   int32 // 范围: 1 ~ 100000
+	seqNumRequestMap *RequestMap
+	currentSeqId     int32 // 范围: 1 ~ 100000
 
 	Index    int
 	delegate *BackService
@@ -43,52 +41,21 @@ type BackendConn struct {
 }
 
 func NewBackendConn(addr string, delegate *BackService, service string, verbose bool) *BackendConn {
+	requestMap, _ := NewRequestMap(4096)
 	bc := &BackendConn{
-		addr:           addr,
-		service:        service,
-		input:          make(chan *Request, 1024),
-		seqNum2Request: make(map[int32]*Request, 4096),
-		hbTimeout:      make(chan bool),
-		hbStop:         make(chan bool),
-		currentSeqId:   BACKEND_CONN_MIN_SEQ_ID,
-		Index:          INVALID_ARRAY_INDEX,
-		delegate:       delegate,
-		verbose:        verbose,
+		addr:             addr,
+		service:          service,
+		input:            make(chan *Request, 1024),
+		hbTimeout:        make(chan bool),
+		hbStop:           make(chan bool),
+		seqNumRequestMap: requestMap,
+		currentSeqId:     BACKEND_CONN_MIN_SEQ_ID,
+		Index:            INVALID_ARRAY_INDEX,
+		delegate:         delegate,
+		verbose:          verbose,
 	}
 	go bc.Run()
 	return bc
-}
-
-func (bc *BackendConn) Heartbeat() {
-	go func() {
-		bc.hbLastTime.Set(time.Now().Unix())
-
-	LOOP:
-		for true {
-			select {
-			case <-bc.hbStop:
-				return
-
-			case <-bc.hbTicker.C:
-				// stop Ticker会导致程序block在这个地方，因此增加了: hbStop来辅助stop的处理
-				// http://golang.org/pkg/time/#Ticker
-				// Stop turns off a ticker. After Stop, no more ticks will be sent. Stop does not close the channel, to prevent a read from the channel succeeding incorrectly.
-				//				log.Printf(Red("HB: %s"), bc.service)
-				if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
-					bc.hbTimeout <- true
-					break LOOP
-				} else {
-					// 定时添加Ping的任务; 如果标记下线，则不在心跳
-					if !bc.IsMarkOffline.Get() {
-						r := NewPingRequest()
-						bc.PushBack(r)
-					} else {
-						break LOOP
-					}
-				}
-			}
-		}
-	}()
 }
 
 //
@@ -148,9 +115,7 @@ func (bc *BackendConn) Addr() string {
 // 2. 正常的请求
 func (bc *BackendConn) PushBack(r *Request) {
 	if bc.IsConnActive.Get() {
-		if r.Wait != nil {
-			r.Wait.Add(1)
-		}
+		r.Wait.Add(1)
 		bc.input <- r
 	} else {
 
@@ -237,64 +202,85 @@ func (bc *BackendConn) Run() {
 //
 func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
-	bc.hbTicker = time.NewTicker(time.Second)
 	defer func() {
+		// 关闭心跳的Ticker
 		bc.hbTicker.Stop()
-		bc.hbStop <- true
+		bc.hbTicker = nil
 	}()
 
 	bc.MarkConnActiveOK() // 准备接受数据
-	bc.loopReader(c)      // 异步
-	bc.Heartbeat()        // 建立连接之后，就启动HB
+	bc.loopReader(c)      // 异步(读取来自后端服务器的返回数据)
 
 	var r *Request
 	var ok bool
 
+	// 准备HB Ticker
+	bc.hbTicker = time.NewTicker(time.Second)
+	bc.hbLastTime.Set(time.Now().Unix())
+
 	for true {
 		// 等待输入的Event, 或者 heartbeatTimeout
 		select {
+		case <-bc.hbTicker.C:
+			if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
+				return errors.New(fmt.Sprintf("[%s]HB timeout", bc.service))
+			} else {
+				// 定时添加Ping的任务; 如果标记下线，则不在心跳
+				if !bc.IsMarkOffline.Get() {
+					// 发送心跳信息
+					r := NewPingRequest()
+					bc.PushBack(r)
+
+					// 同时检测当前的异常请求
+					expired := microseconds() - 1000000*5 // 以microsecond为单位
+					for true {
+						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
+						if ok && (request.Start <= expired) {
+							// 如果存在，并且有过期的，则删除
+							bc.seqNumRequestMap.Remove(seqId)
+							log.Warnf(Red("Remove Expired Request: %s.%s"), request.Service, request.Request.Name)
+						} else {
+							break
+						}
+					}
+				}
+			}
+
 		case r, ok = <-bc.input:
 			if !ok {
 				return nil
+			} else {
+				//
+				// 如果暂时没有数据输入，则p策略可能就有问题了
+				// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
+				//
+				if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+					// 过期的HB信号，直接放弃
+					if time.Now().Unix()-r.Start > 4 {
+						log.Printf(Magenta("Expired HB Signal"))
+					}
+				}
+
+				// 请求正常转发给后端的Rpc Server
+				var flush = len(bc.input) == 0
+
+				// 1. 替换新的SeqId
+				r.ReplaceSeqId(bc.currentSeqId)
+
+				// 2. 主动控制Buffer的flush
+				c.Write(r.Request.Data)
+				err := c.FlushBuffer(flush)
+
+				if err == nil {
+					//			log.Printf("Succeed Write Request to backend Server/LB\n")
+					bc.IncreaseCurrentSeqId()
+					bc.seqNumRequestMap.Add(r.Response.SeqId, r)
+
+				} else {
+					// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
+					return bc.setResponse(r, nil, err)
+				}
 			}
-		case <-bc.hbTimeout:
-			return errors.New(fmt.Sprintf("[%s]HB timeout", bc.service))
-		}
-
-		//
-		// 如果暂时没有数据输入，则p策略可能就有问题了
-		// 只有写入数据，才有可能产生flush; 如果是最后一个数据必须自己flush, 否则就可能无限期等待
-		//
-		if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
-			// 过期的HB信号，直接放弃
-			if time.Now().Unix()-r.Start > 4 {
-				log.Printf(Magenta("Expired HB Signal"))
-			}
-		}
-
-		// 请求正常转发给后端的Rpc Server
-		var flush = len(bc.input) == 0
-		//		if bc.verbose {
-		//			fmt.Printf("Force flush %t", flush)
-		//		}
-
-		// 1. 替换新的SeqId
-		r.ReplaceSeqId(bc.currentSeqId)
-
-		// 2. 主动控制Buffer的flush
-		c.Write(r.Request.Data)
-		err := c.FlushBuffer(flush)
-
-		if err == nil {
-			//			log.Printf("Succeed Write Request to backend Server/LB\n")
-			bc.IncreaseCurrentSeqId()
-			bc.Lock()
-			bc.seqNum2Request[r.Response.SeqId] = r
-			bc.Unlock()
-
-		} else {
-			// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
-			return bc.setResponse(r, nil, err)
 		}
 	}
 
@@ -342,10 +328,7 @@ func (bc *BackendConn) flushRequests(err error) {
 	// 告诉BackendService, 不再接受新的请求
 	bc.MarkConnActiveFalse()
 
-	bc.Lock()
-	seqRequest := bc.seqNum2Request
-	bc.seqNum2Request = make(map[int32]*Request, 4096)
-	bc.Unlock()
+	seqRequest := bc.seqNumRequestMap.Purge()
 
 	threshold := time.Now().Add(-time.Second * 5)
 	for _, request := range seqRequest {
@@ -356,14 +339,9 @@ func (bc *BackendConn) flushRequests(err error) {
 				log.Printf(Red("[%s]Handle Failed Request: %s, Started: %s"),
 					request.Service, request.Request.Name, FormatYYYYmmDDHHMMSS(t))
 			}
-		} else {
-			log.Printf(Red("[%s]Handle Failed Request: %s"), request.Service,
-				request.Request.Name)
 		}
 		request.Response.Err = err
-		if request.Wait != nil {
-			request.Wait.Done()
-		}
+		request.Wait.Done()
 	}
 
 }
@@ -385,12 +363,10 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		}
 
 		// 找到对应的Request
-		bc.Lock()
-		req, ok := bc.seqNum2Request[seqId]
+		req, ok := bc.seqNumRequestMap.Get(seqId)
 		if ok {
-			delete(bc.seqNum2Request, seqId)
+			bc.seqNumRequestMap.Remove(seqId)
 		}
-		bc.Unlock()
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
@@ -417,13 +393,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	}
 
 	// 设置几个控制用的channel
-	if err != nil && r.Failed != nil {
-		r.Failed.Set(true)
-	}
-	if r.Wait != nil {
-		r.Wait.Done()
-	}
-
+	r.Wait.Done()
 	return err
 }
 
