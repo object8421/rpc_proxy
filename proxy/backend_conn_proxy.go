@@ -147,10 +147,17 @@ func (bc *BackendConn) Addr() string {
 // 1. ping request
 // 2. 正常的请求
 func (bc *BackendConn) PushBack(r *Request) {
-	if r.Wait != nil {
-		r.Wait.Add(1)
+	if bc.IsConnActive.Get() {
+		if r.Wait != nil {
+			r.Wait.Add(1)
+		}
+		bc.input <- r
+	} else {
+
+		r.Response.Err = errors.New(fmt.Sprintf("[%s] Request Assigned to inactive BackendConn", bc.service))
+
+		log.Warn(Magenta("Push Request To Inactive Backend"))
 	}
-	bc.input <- r
 }
 
 //
