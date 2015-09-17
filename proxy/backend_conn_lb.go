@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"fmt"
 	"time"
 
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
@@ -107,16 +108,12 @@ func (bc *BackendConnLB) Address() string {
 //
 func (bc *BackendConnLB) PushBack(r *Request) {
 	// 关键路径必须有Log, 高频路径的Log需要受verbose状态的控制
-	//	if bc.verbose {
-	//		log.Printf("Add New Request To BackendConnLB: %s %s\n", r.Service, r.Request.Name)
-	//	}
 	if bc.IsConnActive.Get() {
 		r.Service = bc.serviceName
 		r.Wait.Add(1)
 		bc.input <- r
 	} else {
-		r.Response.Err = errors.New(fmt.Sprintf("[%s] Request Assigned to inactive BackendConnLB", bc.service))
-
+		r.Response.Err = errors.New(fmt.Sprintf("[%s] Request Assigned to inactive BackendConnLB", bc.serviceName))
 		log.Warn(Magenta("Push Request To Inactive Backend"))
 	}
 
