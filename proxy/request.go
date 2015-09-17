@@ -4,7 +4,6 @@ package proxy
 
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
-	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"strings"
 	"sync"
 )
@@ -42,9 +41,7 @@ type Request struct {
 		TypeId thrift.TMessageType
 	}
 
-	Wait *sync.WaitGroup
-
-	Failed *atomic2.Bool
+	Wait sync.WaitGroup
 }
 
 //
@@ -52,7 +49,6 @@ type Request struct {
 //
 func NewRequest(data []byte, serviceInReq bool) *Request {
 	request := &Request{
-		Wait:         &sync.WaitGroup{},
 		ProxyRequest: serviceInReq,
 		Start:        microseconds(),
 	}
