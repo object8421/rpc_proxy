@@ -50,9 +50,11 @@ func (c *RequestMap) Purge() []*Request {
 	defer c.lock.Unlock()
 
 	// 拷贝剩余的Requests
-	results := make([]*Request, len(c.items))
-	for _, value := range c.items {
-		results = append(results, value.Value.(*Entry).value)
+	results := make([]*Request, 0, len(c.items))
+	for _, element := range c.items {
+		results = append(results, element.Value.(*Entry).value)
+
+		//		log.Printf("Results Len: %d, Sid: %d", len(results), element.Value.(*Entry).value.Response.SeqId)
 	}
 
 	// 重新初始化
@@ -175,7 +177,10 @@ func (c *RequestMap) removeOldest() {
 
 // 删除指定的元素(参数: list.Element)
 func (c *RequestMap) removeElement(e *list.Element) {
+
 	c.evictList.Remove(e)
 	kv := e.Value.(*Entry)
+
+	//	log.Printf("Remove Element: %s, With key: %d", kv.value.Request.Name, kv.key)
 	delete(c.items, kv.key)
 }

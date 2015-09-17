@@ -3,11 +3,9 @@
 package proxy
 
 import (
-	"os"
-	//	"fmt"
-	//	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/stretchr/testify/assert"
+	"os"
 	//	"io"
 	"testing"
 )

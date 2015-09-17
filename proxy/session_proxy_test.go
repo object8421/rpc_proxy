@@ -7,7 +7,6 @@ import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"github.com/stretchr/testify/assert"
-	"io"
 	"testing"
 	"time"
 )
@@ -37,36 +36,23 @@ func (p *fakeServer) Dispatch(r *Request) error {
 }
 
 //
-// go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestError"
-//
-func TestError(t *testing.T) {
-	err1 := io.EOF
-	err2 := io.EOF
-	fmt.Printf("Err1: %p, Err2: %p, Equal: %t\n", err1, err2, err1 == err2)
-}
-
-//
 // go test git.chunyu.me/infra/rpc_proxy/proxy -v -run "TestSession"
 //
 func TestSession(t *testing.T) {
 	// 作为一个Server
 	transport, err := thrift.NewTServerSocket("127.0.0.1:0")
-	assert.NoError(t, err)
 	err = transport.Open() // 打开Transport
-	assert.NoError(t, err)
-
 	defer transport.Close()
 
 	err = transport.Listen() // 开始监听
 	assert.NoError(t, err)
 
 	addr := transport.Addr().String()
-
 	fmt.Println("Addr: ", addr)
 
+	// 1. Fake Requests
 	var requestNum int32 = 10
 	requests := make([]*Request, 0, requestNum)
-
 	var i int32
 	for i = 0; i < requestNum; i++ {
 		buf := make([]byte, 100, 100)
@@ -81,11 +67,16 @@ func TestSession(t *testing.T) {
 
 		requests = append(requests, req)
 	}
+
+	// 2. 将请求交给BackendConn
 	go func() {
 		// 模拟请求:
 		// 客户端代码
 		bc := NewBackendConn(addr, nil, "test", true)
 		bc.currentSeqId = 10
+
+		// 上线 BackendConn
+		bc.IsConnActive.Set(true)
 
 		// 准备发送数据
 		var i int32
@@ -110,8 +101,8 @@ func TestSession(t *testing.T) {
 		}
 		assert.NoError(t, err)
 
+		// 建立一个长连接, 同上面的: NewBackendConn通信
 		session := NewSession(tran, "", true)
-
 		session.Serve(server, 6)
 
 		time.Sleep(time.Second * 2)
@@ -123,6 +114,6 @@ func TestSession(t *testing.T) {
 		fmt.Println("===== Before After Wait")
 
 		log.Printf("Request: %d, .....", i)
-		assert.Equal(t, len(requests[i].Response.Data), len(requests[i].Request.Data))
+		assert.Equal(t, len(requests[i].Request.Data), len(requests[i].Response.Data))
 	}
 }
