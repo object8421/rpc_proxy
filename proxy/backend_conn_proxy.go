@@ -232,7 +232,7 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 					bc.PushBack(r)
 
 					// 同时检测当前的异常请求
-					expired := microseconds() - 1000000*5 // 以microsecond为单位
+					expired := microseconds() - REQUEST_EXPIRED_TIME_MICRO // 以microsecond为单位
 					for true {
 						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
 						if ok && (request.Start <= expired) {

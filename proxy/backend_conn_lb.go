@@ -112,6 +112,7 @@ func (bc *BackendConnLB) PushBack(r *Request) {
 		r.Service = bc.serviceName
 		r.Wait.Add(1)
 		bc.input <- r
+
 	} else {
 		r.Response.Err = errors.New(fmt.Sprintf("[%s] Request Assigned to inactive BackendConnLB", bc.serviceName))
 		log.Warn(Magenta("Push Request To Inactive Backend"))
@@ -152,6 +153,9 @@ func (bc *BackendConnLB) loopWriter() error {
 		// 等待输入的Event, 或者 heartbeatTimeout
 		select {
 		case <-bc.hbTicker.C:
+			// 两种情况下，心跳会超时
+			// 1. 对方挂了
+			// 2. 自己快要挂了，然后就不再发送心跳；没有了信条，就会超时
 			if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 				return errors.New("HB timeout")
 			} else {
@@ -161,7 +165,7 @@ func (bc *BackendConnLB) loopWriter() error {
 					bc.PushBack(r)
 
 					// 同时检测当前的异常请求
-					expired := microseconds() - 1000000*5 // 以microsecond为单位
+					expired := microseconds() - REQUEST_EXPIRED_TIME_MICRO // 以microsecond为单位
 					for true {
 						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
 						if ok && (request.Start <= expired) {
@@ -185,11 +189,10 @@ func (bc *BackendConnLB) loopWriter() error {
 				if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
 					// 过期的HB信号，直接放弃
 					if time.Now().Unix()-r.Start > 4 {
-						continue
+						log.Warnf(Red("Expired HB Signals"))
 					}
 				}
 				var flush = len(bc.input) == 0
-				//		fmt.Printf("Force flush %t\n", flush)
 
 				// 1. 替换新的SeqId
 				r.ReplaceSeqId(bc.currentSeqId)
