@@ -98,7 +98,7 @@ func (bc *BackendConnLB) Run() {
 
 }
 
-func (bc *BackendConnLB) Addr4Log() string {
+func (bc *BackendConnLB) Address() string {
 	return bc.address
 }
 
@@ -110,11 +110,16 @@ func (bc *BackendConnLB) PushBack(r *Request) {
 	//	if bc.verbose {
 	//		log.Printf("Add New Request To BackendConnLB: %s %s\n", r.Service, r.Request.Name)
 	//	}
+	if bc.IsConnActive.Get() {
+		r.Service = bc.serviceName
+		r.Wait.Add(1)
+		bc.input <- r
+	} else {
+		r.Response.Err = errors.New(fmt.Sprintf("[%s] Request Assigned to inactive BackendConnLB", bc.service))
 
-	r.Service = bc.serviceName
+		log.Warn(Magenta("Push Request To Inactive Backend"))
+	}
 
-	r.Wait.Add(1)
-	bc.input <- r
 }
 
 //

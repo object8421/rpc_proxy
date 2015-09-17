@@ -224,7 +224,7 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 		}
 	} else {
 		log.Printf(Red("Remove BackendConn From activeConns: %s, Index: %d, Count: %d"),
-			conn.Addr4Log(), conn.Index, len(s.activeConns))
+			conn.Address(), conn.Index, len(s.activeConns))
 
 		// 从数组中删除一个元素(O(1)的操作)
 		if conn.Index != INVALID_ARRAY_INDEX {
@@ -242,7 +242,7 @@ func (s *BackServiceLB) StateChanged(conn *BackendConnLB) {
 				conn.Index = INVALID_ARRAY_INDEX
 
 			}
-			log.Printf(Red("Remove BackendConn From activeConns: %s"), conn.Addr4Log())
+			log.Printf(Red("Remove BackendConn From activeConns: %s"), conn.Address())
 
 			// 2. slice
 			s.activeConns = s.activeConns[0:lastIndex]
