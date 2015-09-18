@@ -241,8 +241,9 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 								request.Response.Err = request.NewTimeoutError()
 								request.Wait.Done()
 							}
-
-							log.Warnf(Red("Remove Expired Request: %s.%s"), request.Service, request.Request.Name)
+							// 如果出问题了，则打印原始的请求的数据
+							log.Warnf(Red("Remove Expired Request: %s.%s, Data: %s"),
+								request.Service, request.Request.Name, string(request.Request.Data))
 						} else {
 							break
 						}
