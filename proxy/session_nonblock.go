@@ -22,11 +22,10 @@ type NonBlockSession struct {
 	LastOpUnix    int64
 	CreateUnix    int64
 
-	quit    bool
-	failed  atomic2.Bool
 	closed  atomic2.Bool
 	verbose bool
 
+	// 用于记录整个RPC服务的最后的访问时间，然后用于Graceful Stop
 	lastRequestTime *atomic2.Int64
 }
 
@@ -53,7 +52,6 @@ func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool,
 }
 
 func (s *NonBlockSession) Close() error {
-	s.failed.Set(true)
 	s.closed.Set(true)
 	return s.TBufferedFramedTransport.Close()
 }
@@ -80,7 +78,11 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		defer func() {
 			// 出现错误了，直接关闭Session
 			s.Close()
+
+			log.Infof(Red("Session [%p] closed, Aband %d Tasks"), s, len(tasks))
+
 			for _ = range tasks { // close(tasks)关闭for loop
+
 			}
 		}()
 		if err := s.loopWriter(tasks); err != nil {

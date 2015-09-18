@@ -5,3 +5,5 @@
 .idea
 *.pyc
 /gen-py
+/rpc_lb
+/rpc_proxy
