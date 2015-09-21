@@ -93,6 +93,19 @@ func (c *RequestMap) Add(key int32, value *Request) bool {
 }
 
 // 读取Key, 不调整元素的顺序
+func (c *RequestMap) Pop(key int32) *Request {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if ent, ok := c.items[key]; ok {
+		c.removeElement(ent)
+		return ent.Value.(*Entry).value
+	} else {
+		return nil
+	}
+}
+
+// 读取Key, 不调整元素的顺序
 func (c *RequestMap) Get(key int32) (value *Request, ok bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -153,6 +166,36 @@ func (c *RequestMap) Len() int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.evictList.Len()
+}
+
+//
+// 清除过期的Request
+//
+func (c *RequestMap) RemoveExpired(expiredInMicro int64) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	for true {
+		ent := c.evictList.Back()
+		if ent == nil {
+			return
+		}
+		entry := ent.Value.(*Entry)
+		request := entry.value
+		if request.Start > expiredInMicro {
+			return
+		}
+
+		// 1. 准备删除当前的元素
+		c.removeElement(ent)
+
+		// 2. 如果出问题了，则打印原始的请求的数据
+		log.Warnf(Red("Remove Expired Request: %s.%s [%d]"),
+			request.Service, request.Request.Name, request.Response.SeqId)
+
+		// 3. 处理Request
+		request.Response.Err = request.NewTimeoutError()
+		request.Wait.Done()
+	}
 }
 
 // 读取最旧的元素

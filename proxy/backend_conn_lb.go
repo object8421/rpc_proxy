@@ -157,7 +157,7 @@ func (bc *BackendConnLB) loopWriter() error {
 			// 1. 对方挂了
 			// 2. 自己快要挂了，然后就不再发送心跳；没有了信条，就会超时
 			if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
-				return errors.New("HB timeout")
+				return errors.New("Worker HB timeout")
 			} else {
 				if bc.IsConnActive.Get() {
 					// 定时添加Ping的任务
@@ -166,22 +166,7 @@ func (bc *BackendConnLB) loopWriter() error {
 
 					// 同时检测当前的异常请求
 					expired := microseconds() - REQUEST_EXPIRED_TIME_MICRO // 以microsecond为单位
-					for true {
-						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
-						if ok && (request.Start <= expired) {
-							// 如果存在，并且有过期的，则删除
-							if bc.seqNumRequestMap.Remove(seqId) {
-								request.Response.Err = request.NewTimeoutError()
-								request.Wait.Done()
-							}
-							// 如果出问题了，则打印原始的请求的数据
-							log.Warnf(Red("Remove Expired Request: %s.%s, Data: %s"),
-								request.Service, request.Request.Name, string(request.Request.Data))
-
-						} else {
-							break
-						}
-					}
+					bc.seqNumRequestMap.RemoveExpired(expired)
 				}
 			}
 
@@ -198,24 +183,20 @@ func (bc *BackendConnLB) loopWriter() error {
 						log.Warnf(Red("Expired HB Signals"))
 					}
 				}
-				var flush = len(bc.input) == 0
+				// 先不做优化
+				var flush = true // len(bc.input) == 0
 
-				// 1. 替换新的SeqId
+				// 1. 替换新的SeqId(currentSeqId只在当前线程中使用, 不需要同步)
 				r.ReplaceSeqId(bc.currentSeqId)
+				bc.IncreaseCurrentSeqId()
 
 				// 2. 主动控制Buffer的flush
-
-				//			log.Printf("Request Data Len: %d\n ", len(r.Request.Data))
+				bc.seqNumRequestMap.Add(r.Response.SeqId, r)
 				c.Write(r.Request.Data)
 				err := c.FlushBuffer(flush)
 
-				if err == nil {
-
-					bc.IncreaseCurrentSeqId()
-					bc.seqNumRequestMap.Add(r.Response.SeqId, r)
-
-					// 继续读取请求, 如果有异常，如何处理呢?
-				} else {
+				if err != nil {
+					bc.seqNumRequestMap.Pop(r.Response.SeqId)
 					log.ErrorErrorf(err, "FlushBuffer Error: %v\n", err)
 
 					// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)

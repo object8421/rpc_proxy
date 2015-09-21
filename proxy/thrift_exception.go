@@ -61,7 +61,8 @@ func GetThriftException(req *Request, module string) []byte {
 	// 构建一个Message, 写入Exception
 	exc := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, msg)
 
-	protocol.WriteMessageBegin(req.Service, thrift.EXCEPTION, req.Request.SeqId)
+	// 注意消息的格式
+	protocol.WriteMessageBegin(req.Request.Name, thrift.EXCEPTION, req.Request.SeqId)
 	exc.Write(protocol)
 	protocol.WriteMessageEnd()
 

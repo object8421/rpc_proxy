@@ -5,6 +5,7 @@ package proxy
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
@@ -17,6 +18,11 @@ type BackendConnStateChanged interface {
 	StateChanged(conn *BackendConn)
 }
 
+var (
+	backendConnIndex      int32       = 0
+	backendConnIndexMutex *sync.Mutex = &sync.Mutex{}
+)
+
 type BackendConn struct {
 	addr    string
 	service string
@@ -25,6 +31,8 @@ type BackendConn struct {
 	// seqNum2Request 读写基本上差不多
 	seqNumRequestMap *RequestMap
 	currentSeqId     int32 // 范围: 1 ~ 100000
+	minSeqId         int32
+	maxSeqId         int32
 
 	Index    int
 	delegate *BackService
@@ -34,22 +42,33 @@ type BackendConn struct {
 	verbose       bool
 
 	hbLastTime atomic2.Int64
-
-	hbTicker  *time.Ticker
-	hbStop    chan bool
-	hbTimeout chan bool
+	hbTicker   *time.Ticker
 }
 
 func NewBackendConn(addr string, delegate *BackService, service string, verbose bool) *BackendConn {
 	requestMap, _ := NewRequestMap(4096)
+
+	var minSeqId int32
+	backendConnIndexMutex.Lock()
+	log.Infof("Create Backend Conn with index: %d", backendConnIndex)
+
+	minSeqId = backendConnIndex
+	backendConnIndex += 1
+	if backendConnIndex > 100 {
+		backendConnIndex = 0
+	}
+	backendConnIndexMutex.Unlock()
+
+	minSeqId = minSeqId * BACKEND_CONN_MAX_SEQ_ID
+
 	bc := &BackendConn{
 		addr:             addr,
 		service:          service,
 		input:            make(chan *Request, 1024),
-		hbTimeout:        make(chan bool),
-		hbStop:           make(chan bool),
 		seqNumRequestMap: requestMap,
-		currentSeqId:     BACKEND_CONN_MIN_SEQ_ID,
+		currentSeqId:     minSeqId,
+		minSeqId:         minSeqId,
+		maxSeqId:         minSeqId + BACKEND_CONN_MAX_SEQ_ID - 1,
 		Index:            INVALID_ARRAY_INDEX,
 		delegate:         delegate,
 		verbose:          verbose,
@@ -114,7 +133,7 @@ func (bc *BackendConn) Addr() string {
 // 1. ping request
 // 2. 正常的请求
 func (bc *BackendConn) PushBack(r *Request) {
-	if bc.IsConnActive.Get() {
+	if bc.IsConnActive.Get() && !bc.IsMarkOffline.Get() {
 		r.Wait.Add(1)
 		bc.input <- r
 	} else {
@@ -175,13 +194,20 @@ func (bc *BackendConn) Run() {
 			return
 		}
 
+		connOver := &sync.WaitGroup{}
 		c := NewTBufferedFramedTransport(transport, 100*time.Microsecond, 20)
 
+		bc.MarkConnActiveOK() // 准备接受数据
+		connOver.Add(1)
+		bc.loopReader(c, connOver) // 异步(读取来自后端服务器的返回数据)
 		// 2. 将 bc.input 中的请求写入 后端的Rpc Server
 		err = bc.loopWriter(c) // 同步
 
 		// 3. 停止接受Request
 		bc.MarkConnActiveFalse()
+
+		// 等待Conn正式关闭
+		connOver.Wait()
 
 		// 4. 将bc.input中剩余的 Request直接出错处理
 		if err == nil {
@@ -208,9 +234,6 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 		bc.hbTicker = nil
 	}()
 
-	bc.MarkConnActiveOK() // 准备接受数据
-	bc.loopReader(c)      // 异步(读取来自后端服务器的返回数据)
-
 	var r *Request
 	var ok bool
 
@@ -233,21 +256,8 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
 					// 同时检测当前的异常请求
 					expired := microseconds() - REQUEST_EXPIRED_TIME_MICRO // 以microsecond为单位
-					for true {
-						seqId, request, ok := bc.seqNumRequestMap.PeekOldest()
-						if ok && (request.Start <= expired) {
-							// 如果存在，并且有过期的，则删除
-							if bc.seqNumRequestMap.Remove(seqId) {
-								request.Response.Err = request.NewTimeoutError()
-								request.Wait.Done()
-							}
-							// 如果出问题了，则打印原始的请求的数据
-							log.Warnf(Red("Remove Expired Request: %s.%s, Data: %s"),
-								request.Service, request.Request.Name, string(request.Request.Data))
-						} else {
-							break
-						}
-					}
+					bc.seqNumRequestMap.RemoveExpired(expired)
+
 				}
 			}
 
@@ -271,17 +281,19 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 
 				// 1. 替换新的SeqId
 				r.ReplaceSeqId(bc.currentSeqId)
+				bc.IncreaseCurrentSeqId()
 
+				// 先记录, 然后再转发请求
+				bc.seqNumRequestMap.Add(r.Response.SeqId, r)
 				// 2. 主动控制Buffer的flush
 				c.Write(r.Request.Data)
 				err := c.FlushBuffer(flush)
 
 				if err == nil {
-					//			log.Printf("Succeed Write Request to backend Server/LB\n")
-					bc.IncreaseCurrentSeqId()
-					bc.seqNumRequestMap.Add(r.Response.SeqId, r)
+					log.Debugf("--> SeqId: %d vs. %d To Backend", r.Request.SeqId, r.Response.SeqId)
 
 				} else {
+					bc.seqNumRequestMap.Pop(r.Response.SeqId) // 如果写错了，在删除
 					// 进入不可用状态(不可用状态下，通过自我心跳进入可用状态)
 					return bc.setResponse(r, nil, err)
 				}
@@ -300,11 +312,14 @@ func (bc *BackendConn) loopWriter(c *TBufferedFramedTransport) error {
 // 1. bc.flushRequest
 // 2. bc.setResponse
 //
-func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
+func (bc *BackendConn) loopReader(c *TBufferedFramedTransport, connOver *sync.WaitGroup) {
 	go func() {
+		defer connOver.Done()
 		defer c.Close()
 
-		for true {
+		lastTime := time.Now().Unix()
+		// Active状态，或者最近5s有数据返回
+		for bc.IsConnActive.Get() || (time.Now().Unix()-lastTime > 5) {
 			// 读取来自后端服务的数据，通过 setResponse 转交给 前端
 			// client <---> proxy <-----> backend_conn <---> rpc_server
 			// ReadFrame需要有一个度? 如果碰到EOF该如何处理呢?
@@ -312,6 +327,7 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
 			// io.EOF在两种情况下会出现
 			//
 			resp, err := c.ReadFrame()
+			lastTime = time.Now().Unix()
 
 			if err != nil {
 				err1, ok := err.(thrift.TTransportException)
@@ -325,6 +341,8 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport) {
 				bc.setResponse(nil, resp, err)
 			}
 		}
+
+		bc.flushRequests(errors.New("BackendConn Timeout"))
 	}()
 }
 
@@ -334,19 +352,10 @@ func (bc *BackendConn) flushRequests(err error) {
 	bc.MarkConnActiveFalse()
 
 	seqRequest := bc.seqNumRequestMap.Purge()
-
-	threshold := time.Now().Add(-time.Second * 5)
 	for _, request := range seqRequest {
-		if request.Start > 0 {
-			t := time.Unix(request.Start, 0)
-			if t.After(threshold) {
-				// 似乎在笔记本上，合上显示器之后出出现网络错误
-				log.Printf(Red("[%s]Handle Failed Request: %s, Started: %s"),
-					request.Service, request.Request.Name, FormatYYYYmmDDHHMMSS(t))
-			}
-		}
 		request.Response.Err = err
 		request.Wait.Done()
+		log.Debugf("FlushRequests, SeqId: %d", request.Response.SeqId)
 	}
 
 }
@@ -356,22 +365,24 @@ func (bc *BackendConn) flushRequests(err error) {
 func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 	// 表示出现错误了
 	if data == nil {
-		log.Printf("[%s]No Data From Server, error: %v", r.Service, err)
+		log.Debugf("[%s] SeqId: %d, No Data From Server, error: %v", r.Service, r.Response.SeqId, err)
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
 		typeId, seqId, err := DecodeThriftTypIdSeqId(data)
-
+		//		if err != nil {
+		//			log.Debugf("SeqId: %d, Decoded, error: %v", seqId, err)
+		//		} else {
+		//			log.Debugf("SeqId: %d, Decoded", seqId)
+		//		}
 		// 解码错误，直接报错
 		if err != nil {
+			log.Debugf("SeqId: %d, Decoded, error: %v", seqId, err)
 			return err
 		}
 
 		// 找到对应的Request
-		req, ok := bc.seqNumRequestMap.Get(seqId)
-		if ok {
-			ok = bc.seqNumRequestMap.Remove(seqId)
-		}
+		req := bc.seqNumRequestMap.Pop(seqId)
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
@@ -379,33 +390,36 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			return nil
 		}
 
-		if !ok {
+		if req == nil {
 			// return errors.New("Invalid Response")
 			// 由于是异步返回，因此回来找不到也正常
+			log.Debugf("#setResponse not found, seqId: %d", seqId)
 			return nil
+		} else {
+			//			log.Debugf("[%s]Data From Server, seqId: %d, Request: %d", req.Service, seqId, req.Request.SeqId)
+			r = req
+			r.Response.TypeId = typeId
 		}
-		if bc.verbose {
-			log.Printf("[%s]Data From Server, seqId: %d, Request: %d", req.Service, seqId, req.Request.SeqId)
-		}
-		r = req
-		r.Response.TypeId = typeId
 	}
 
 	// 正常返回数据，或者报错
 	r.Response.Data, r.Response.Err = data, err
+
 	// 还原SeqId
 	if data != nil {
 		r.RestoreSeqId()
 	}
+
 	// 设置几个控制用的channel
 	r.Wait.Done()
+
 	return err
 }
 
 func (bc *BackendConn) IncreaseCurrentSeqId() {
 	// 备案(只有loopWriter操作，不加锁)
 	bc.currentSeqId++
-	if bc.currentSeqId > BACKEND_CONN_MAX_SEQ_ID {
-		bc.currentSeqId = BACKEND_CONN_MIN_SEQ_ID
+	if bc.currentSeqId > bc.maxSeqId {
+		bc.currentSeqId = bc.minSeqId
 	}
 }

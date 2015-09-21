@@ -178,6 +178,7 @@ func (s *BackService) NextBackendConn() *BackendConn {
 // 将消息发送到Backend上去
 //
 func (s *BackService) HandleRequest(req *Request) (err error) {
+	// 并发度可能很高
 	backendConn := s.NextBackendConn()
 
 	s.lastRequestTime.Set(time.Now().Unix())

@@ -145,10 +145,13 @@ func (p *ThriftRpcServer) Dispatch(r *Request) error {
 
 	r.Response.Data = transport.Bytes()
 
-	// 如果transport重新分配了内存，则立即归还slice
-	if cap(r.Response.Data) != DEFAULT_SLICE_LEN {
-		returnSlice(slice)
-	}
+	_, seqId, _ := DecodeThriftTypIdSeqId(r.Response.Data)
+
+	log.Debugf("SeqId: %d vs. %d, Dispatch Over", r.Request.SeqId, seqId)
+	//	// 如果transport重新分配了内存，则立即归还slice
+	//	if cap(r.Response.Data) != DEFAULT_SLICE_LEN {
+	//		returnSlice(slice)
+	//	}
 	return nil
 }
 

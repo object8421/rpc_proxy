@@ -177,7 +177,7 @@ func (s *Session) handleResponse(r *Request) {
 	if r.Response.Err != nil {
 
 		r.Response.Data = GetThriftException(r, "proxy_session")
-		log.Printf(Magenta("---->Convert Error Back to Exception"))
+		log.Printf(Magenta("---->Convert Error Back to Exception, Err: %v"), r.Response.Err)
 	}
 
 	// 如何处理Data和Err呢?

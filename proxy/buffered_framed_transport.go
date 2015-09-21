@@ -31,7 +31,7 @@ type TBufferedFramedTransport struct {
 	maxLength int
 
 	MaxBuffered int   // 单位: 请求个数
-	MaxInterval int64 // 单位: microseconds
+	MaxInterval int64 // 单位: nanoseconds
 	nbuffered   int
 	lastflush   int64 // 单位: ns(1e-9s)
 }
@@ -172,6 +172,9 @@ func (p *TBufferedFramedTransport) ReadByte() (c byte, err error) {
 func (p *TBufferedFramedTransport) Write(buf []byte) (int, error) {
 	// 直接写入Buffer
 	n, err := p.Buffer.Write(buf)
+	if n != len(buf) {
+		log.Errorf("TBufferedFramedTransport#Write Error")
+	}
 	return n, thrift.NewTTransportExceptionFromError(err)
 }
 
@@ -187,10 +190,11 @@ func (p *TBufferedFramedTransport) Flush() error {
 	return p.FlushBuffer(true)
 }
 
-func (p *TBufferedFramedTransport) FlushTransport(force bool) error {
+func (p *TBufferedFramedTransport) flushTransport(force bool) error {
 	if p.nbuffered > 0 && (force || p.needFlush()) {
 		// 这个如何控制呢?
 		if err := p.Writer.Flush(); err != nil {
+			log.ErrorErrorf(err, "FlushTransport Error, %v", err)
 			return err
 		}
 		p.nbuffered = 0
@@ -205,6 +209,13 @@ func (p *TBufferedFramedTransport) FlushTransport(force bool) error {
 func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	size := p.Buffer.Len()
 
+	// 没有有效的数据，直接返回
+	if size == 0 {
+		return nil
+	}
+	// TODO: 待优化
+	force = true
+
 	// 1. 将p.buf的大小以BigEndian模式写入: buf中
 	buf := p.LenghW[:4]
 	binary.BigEndian.PutUint32(buf, uint32(size))
@@ -218,11 +229,18 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 
 	// 2. 然后继续写入p.buf中的数据
 	if size > 0 {
-		var n int64
+		var (
+			n   int64
+			err error
+		)
+		// 如果 err == io.ErrShortWrite， p.Writer中也有buffer, 因此可以不用考虑异常
 		if n, err = p.Buffer.WriteTo(p.Writer); err != nil {
 			log.ErrorErrorf(err, "Error Flushing Expect Write: %d, but %d\n",
 				size, n)
 			return thrift.NewTTransportExceptionFromError(err)
+		}
+		if n < int64(size) {
+			log.Printf(Red("Buffer Write Not Finished"))
 		}
 	}
 
@@ -232,7 +250,7 @@ func (p *TBufferedFramedTransport) FlushBuffer(force bool) error {
 	p.Buffer.Reset()
 
 	// Flush Buffer
-	return p.FlushTransport(force)
+	return p.flushTransport(force)
 }
 
 func (p *TBufferedFramedTransport) readFrameHeader() (int, error) {

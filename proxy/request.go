@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"strings"
 	"sync"
 )
@@ -65,8 +66,8 @@ func NewRequest(data []byte, serviceInReq bool) *Request {
 // 利用自身信息生成 timeout Error
 //
 func (r *Request) NewTimeoutError() error {
-	return errors.New(fmt.Sprintf("Timeout Exception, %s.%s",
-		r.Service, r.Request.Name))
+	return errors.New(fmt.Sprintf("Timeout Exception, %s.%s.%d",
+		r.Service, r.Request.Name, r.Response.SeqId))
 }
 
 //
@@ -95,6 +96,9 @@ func (r *Request) DecodeRequest() {
 func (r *Request) ReplaceSeqId(newSeq int32) {
 	if r.Request.Data != nil {
 		//		log.Printf(Green("Replace SeqNum: %d --> %d"), r.Request.SeqId, newSeq)
+		if r.Response.SeqId != 0 {
+			log.Errorf("Unexpected Response SedId")
+		}
 		r.Response.SeqId = newSeq
 
 		start := 0
@@ -116,6 +120,8 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 		// 将service从name中剥离出去
 		r.Request.Data = r.Request.Data[start:len(r.Request.Data)]
 
+	} else {
+		log.Errorf("ReplaceSeqId called on processed Data")
 	}
 }
 
