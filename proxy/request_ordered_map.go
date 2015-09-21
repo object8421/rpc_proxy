@@ -47,19 +47,18 @@ func NewRequestMap(size int) (*RequestMap, error) {
 // 返回所有元素，重新初始化List/Map
 func (c *RequestMap) Purge() []*Request {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 
 	// 拷贝剩余的Requests
 	results := make([]*Request, 0, len(c.items))
 	for _, element := range c.items {
 		results = append(results, element.Value.(*Entry).value)
-
-		//		log.Printf("Results Len: %d, Sid: %d", len(results), element.Value.(*Entry).value.Response.SeqId)
 	}
 
 	// 重新初始化
 	c.evictList = list.New()
 	c.items = make(map[int32]*list.Element, c.size)
+
+	c.lock.Unlock()
 
 	return results
 }
@@ -69,13 +68,14 @@ func (c *RequestMap) Purge() []*Request {
 //
 func (c *RequestMap) Add(key int32, value *Request) bool {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 
 	// 如果key存在，则覆盖之前的元素；并添加Warning
 	if ent, ok := c.items[key]; ok {
 		c.evictList.MoveToFront(ent)
 		ent.Value.(*Entry).value = value
 		log.Errorf(Red("Duplicated Key Found in RequestOrderedMap: %d"), key)
+
+		c.lock.Unlock()
 		return false
 	}
 
@@ -89,6 +89,7 @@ func (c *RequestMap) Add(key int32, value *Request) bool {
 	if evict {
 		c.removeOldest()
 	}
+	c.lock.Unlock()
 	return evict
 }
 
@@ -97,14 +98,15 @@ func (c *RequestMap) Add(key int32, value *Request) bool {
 //
 func (c *RequestMap) Pop(key int32) *Request {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 
+	var result *Request = nil
 	if ent, ok := c.items[key]; ok {
 		c.removeElement(ent)
-		return ent.Value.(*Entry).value
-	} else {
-		return nil
+		result = ent.Value.(*Entry).value
 	}
+
+	c.lock.Unlock()
+	return result
 }
 
 //
@@ -112,19 +114,18 @@ func (c *RequestMap) Pop(key int32) *Request {
 //
 func (c *RequestMap) Get(key int32) (value *Request, ok bool) {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
 
 	if ent, ok := c.items[key]; ok {
-		return ent.Value.(*Entry).value, true
+		value, ok = ent.Value.(*Entry).value, true
 	}
+	c.lock.RUnlock()
 	return
 }
 
 func (c *RequestMap) Contains(key int32) (ok bool) {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
-
 	_, ok = c.items[key]
+	c.lock.RUnlock()
 	return ok
 }
 
@@ -133,14 +134,14 @@ func (c *RequestMap) Contains(key int32) (ok bool) {
 //
 func (c *RequestMap) Remove(key int32) bool {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 
+	result := false
 	if ent, ok := c.items[key]; ok {
 		c.removeElement(ent)
-		return true
-	} else {
-		return false
+		result = true
 	}
+	c.lock.Unlock()
+	return result
 }
 
 //
@@ -148,8 +149,8 @@ func (c *RequestMap) Remove(key int32) bool {
 //
 func (c *RequestMap) RemoveOldest() {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 	c.removeOldest()
+	c.lock.Unlock()
 }
 
 //
@@ -157,7 +158,6 @@ func (c *RequestMap) RemoveOldest() {
 //
 func (c *RequestMap) Keys() []int32 {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
 
 	keys := make([]int32, len(c.items))
 	ent := c.evictList.Back()
@@ -167,7 +167,7 @@ func (c *RequestMap) Keys() []int32 {
 		ent = ent.Prev()
 		i++
 	}
-
+	c.lock.RUnlock()
 	return keys
 }
 
@@ -176,8 +176,9 @@ func (c *RequestMap) Keys() []int32 {
 //
 func (c *RequestMap) Len() int {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
-	return c.evictList.Len()
+	result := c.evictList.Len()
+	c.lock.RUnlock()
+	return result
 }
 
 //
@@ -185,20 +186,20 @@ func (c *RequestMap) Len() int {
 //
 func (c *RequestMap) RemoveExpired(expiredInMicro int64) {
 	c.lock.Lock()
-	defer c.lock.Unlock()
+
 	for true {
 		ent := c.evictList.Back()
 
 		// 如果Map为空，则返回
 		if ent == nil {
-			return
+			break
 		}
 
 		// 如果请求还没有过期，则不再返回
 		entry := ent.Value.(*Entry)
 		request := entry.value
 		if request.Start > expiredInMicro {
-			return
+			break
 		}
 
 		// 1. 准备删除当前的元素
@@ -212,6 +213,8 @@ func (c *RequestMap) RemoveExpired(expiredInMicro int64) {
 		request.Response.Err = request.NewTimeoutError()
 		request.Wait.Done()
 	}
+
+	c.lock.Unlock()
 }
 
 //
@@ -219,16 +222,17 @@ func (c *RequestMap) RemoveExpired(expiredInMicro int64) {
 //
 func (c *RequestMap) PeekOldest() (key int32, value *Request, ok bool) {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
 	ent := c.evictList.Back()
 
 	if ent != nil {
 		entry := ent.Value.(*Entry)
-		return entry.key, entry.value, true
+		key, value, ok = entry.key, entry.value, true
 	} else {
-		return 0, nil, false
+		key, value, ok = 0, nil, false
 	}
 
+	c.lock.RUnlock()
+	return
 }
 
 // 删除最旧的元素
