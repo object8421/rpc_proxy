@@ -7,6 +7,7 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -18,15 +19,14 @@ type NonBlockSession struct {
 	*TBufferedFramedTransport
 
 	RemoteAddress string
-	Ops           int64
-	LastOpUnix    int64
-	CreateUnix    int64
 
 	closed  atomic2.Bool
 	verbose bool
 
 	// 用于记录整个RPC服务的最后的访问时间，然后用于Graceful Stop
 	lastRequestTime *atomic2.Int64
+
+	lastSeqId int32
 }
 
 func NewNonBlockSession(c thrift.TTransport, address string, verbose bool,
@@ -37,7 +37,6 @@ func NewNonBlockSession(c thrift.TTransport, address string, verbose bool,
 func NewNonBlockSessionSize(c thrift.TTransport, address string, verbose bool,
 	lastRequestTime *atomic2.Int64, bufsize int, timeout int) *NonBlockSession {
 	s := &NonBlockSession{
-		CreateUnix:               time.Now().Unix(),
 		RemoteAddress:            address,
 		lastRequestTime:          lastRequestTime,
 		verbose:                  verbose,
@@ -79,7 +78,7 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 			// 出现错误了，直接关闭Session
 			s.Close()
 
-			log.Infof(Red("Session [%p] closed, Aband %d Tasks"), s, len(tasks))
+			log.Infof(Red("Session [%p] closed, Abandon %d Tasks"), s, len(tasks))
 
 			for _ = range tasks { // close(tasks)关闭for loop
 
@@ -103,7 +102,11 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		wait.Add(1)
 		go func() {
 			// 异步执行
+
 			r, _ := s.handleRequest(request, d)
+			if r.Request.TypeId != MESSAGE_TYPE_HEART_BEAT {
+				log.Debugf(Magenta("[%p] --> SeqId: %d, Goroutine: %d"), s, r.Request.SeqId, runtime.NumGoroutine())
+			}
 
 			// 数据请求完毕之后，将Request交给tasks, 然后再写回Client
 			tasks <- r
@@ -131,12 +134,28 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 		// 2. 将结果写回给Client
 		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
-			log.ErrorErrorf(err, "Write back Data Error: %v\n", err)
+			log.ErrorErrorf(err, "SeqId: %d, Write back Data Error: %v\n", r.Request.SeqId, err)
 			return err
 		}
 
+		//		typeId, sedId, _ := DecodeThriftTypIdSeqId(r.Response.Data)
+
+		//		if typeId != MESSAGE_TYPE_HEART_BEAT {
+		//			if sedId != s.lastSeqId {
+		//				log.Errorf(Red("Invalid SedId for Writer: %d vs. %d"), sedId, s.lastSeqId)
+		//			}
+		//		}
+
+		// log.Printf(Magenta("Task: %d"), r.Response.SeqId)
+
 		// 3. Flush
 		err = s.TBufferedFramedTransport.FlushBuffer(len(tasks) == 0) // len(tasks) == 0
+		if err != nil {
+			log.Debugf(Magenta("Write Back to Client/Proxy SeqId: %d, Error: %v"), r.Request.SeqId, err)
+		} else {
+			log.Debugf(Magenta("Write Back to Client/Proxy SeqId: %d"), r.Request.SeqId)
+		}
+
 		if err != nil {
 			return err
 		}
@@ -172,13 +191,18 @@ func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request,
 		return r, nil
 	}
 
+	//	if r.Request.SeqId-s.lastSeqId != 1 {
+	//		log.Errorf(Red("Invalid SedId: %d vs. %d"), r.Request.SeqId,
+	//			s.lastSeqId)
+	//	}
+	//	s.lastSeqId = r.Request.SeqId
+
 	// 正常请求
 	if s.lastRequestTime != nil {
 		s.lastRequestTime.Set(time.Now().Unix())
 	}
-	// 增加统计
-	s.LastOpUnix = time.Now().Unix()
-	s.Ops++
+
+	log.Debugf("Before Dispatch, SeqId: %d", r.Request.SeqId)
 
 	// 交给Dispatch
 	return r, d.Dispatch(r)
