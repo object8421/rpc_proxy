@@ -191,6 +191,8 @@ func (bc *BackendConnLB) loopWriter() error {
 				bc.IncreaseCurrentSeqId()
 
 				// 2. 主动控制Buffer的flush
+				// 先记录SeqId <--> Request, 再发送请求
+				// 否则: 请求从后端返回，记录还没有完成，就容易导致Request丢失
 				bc.seqNumRequestMap.Add(r.Response.SeqId, r)
 				c.Write(r.Request.Data)
 				err := c.FlushBuffer(flush)
