@@ -92,7 +92,9 @@ func (c *RequestMap) Add(key int32, value *Request) bool {
 	return evict
 }
 
-// 读取Key, 不调整元素的顺序
+//
+// 读取Key, 并将它从Map中删除
+//
 func (c *RequestMap) Pop(key int32) *Request {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -105,10 +107,12 @@ func (c *RequestMap) Pop(key int32) *Request {
 	}
 }
 
+//
 // 读取Key, 不调整元素的顺序
+//
 func (c *RequestMap) Get(key int32) (value *Request, ok bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 
 	if ent, ok := c.items[key]; ok {
 		return ent.Value.(*Entry).value, true
@@ -124,7 +128,9 @@ func (c *RequestMap) Contains(key int32) (ok bool) {
 	return ok
 }
 
+//
 // 删除指定的Key， 返回是否删除OK
+//
 func (c *RequestMap) Remove(key int32) bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -137,14 +143,18 @@ func (c *RequestMap) Remove(key int32) bool {
 	}
 }
 
+//
 // RemoveOldest removes the oldest item from the cache.
+//
 func (c *RequestMap) RemoveOldest() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.removeOldest()
 }
 
+//
 // 按照从旧到新的顺序返回 Keys的列表
+//
 func (c *RequestMap) Keys() []int32 {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -161,7 +171,9 @@ func (c *RequestMap) Keys() []int32 {
 	return keys
 }
 
+//
 // 获取当前的元素个数
+//
 func (c *RequestMap) Len() int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -176,9 +188,13 @@ func (c *RequestMap) RemoveExpired(expiredInMicro int64) {
 	defer c.lock.Unlock()
 	for true {
 		ent := c.evictList.Back()
+
+		// 如果Map为空，则返回
 		if ent == nil {
 			return
 		}
+
+		// 如果请求还没有过期，则不再返回
 		entry := ent.Value.(*Entry)
 		request := entry.value
 		if request.Start > expiredInMicro {
@@ -198,7 +214,9 @@ func (c *RequestMap) RemoveExpired(expiredInMicro int64) {
 	}
 }
 
+//
 // 读取最旧的元素
+//
 func (c *RequestMap) PeekOldest() (key int32, value *Request, ok bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
