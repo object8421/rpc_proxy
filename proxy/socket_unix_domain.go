@@ -108,6 +108,8 @@ func (p *TUnixDomain) Read(buf []byte) (int, error) {
 	if !p.IsOpen() {
 		return 0, thrift.NewTTransportException(thrift.NOT_OPEN, "Connection not open")
 	}
+	
+	
 	p.pushDeadline(true, false)
 	n, err := p.conn.Read(buf)
 	return n, thrift.NewTTransportExceptionFromError(err)

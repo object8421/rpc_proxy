@@ -3,10 +3,12 @@
 package proxy
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
+	"io"
 	"strings"
 	"sync"
 )
@@ -81,12 +83,12 @@ func (r *Request) DecodeRequest() {
 	r.Request.Name, r.Request.TypeId, r.Request.SeqId, _ = protocol.ReadMessageBegin()
 
 	// 参考 ： TMultiplexedProtocol
-	nameFields := strings.SplitN(r.Request.Name, thrift.MULTIPLEXED_SEPARATOR, 2)
-	if len(nameFields) != 2 {
+	idx := strings.Index(r.Request.Name, thrift.MULTIPLEXED_SEPARATOR)
+	if idx == -1 {
 		r.Service = ""
 	} else {
-		r.Service = nameFields[0]
-		r.Request.Name = nameFields[1]
+		r.Service = r.Request.Name[0:idx]
+		r.Request.Name = r.Request.Name[idx+1 : len(r.Request.Name)]
 	}
 }
 
@@ -149,12 +151,19 @@ func (r *Request) Recycle() {
 
 func (r *Request) RestoreSeqId() {
 	if r.Response.Data != nil {
-		transport := NewTMemoryBufferWithBuf(r.Response.Data[0:0])
-		protocol := thrift.NewTBinaryProtocolTransport(transport)
+		// e = p.WriteI32(seqId)
+		// i32 + (i32 + len(str)) + i32[SeqId]
+		// 直接按照TBinaryProtocol协议，修改指定位置的数据: SeqId
+		startIdx := 4 + 4 + len(r.Request.Name)
+		v := r.Response.Data[startIdx : startIdx+4]
+		binary.BigEndian.PutUint32(v, uint32(r.Request.SeqId))
 
-		// 切换回原始的SeqId
-		// r.Response.TypeId 和 r.Request.TypeId可能不一样，要以Response为准
-		protocol.WriteMessageBegin(r.Request.Name, r.Response.TypeId, r.Request.SeqId)
+		//		transport := NewTMemoryBufferWithBuf(r.Response.Data[0:0])
+		//		protocol := thrift.NewTBinaryProtocolTransport(transport)
+
+		//		// 切换回原始的SeqId
+		//		// r.Response.TypeId 和 r.Request.TypeId可能不一样，要以Response为准
+		//		protocol.WriteMessageBegin(r.Request.Name, r.Response.TypeId, r.Request.SeqId)
 	}
 }
 
@@ -162,9 +171,32 @@ func (r *Request) RestoreSeqId() {
 // 给定thrift Message, 解码出: typeId, seqId
 //
 func DecodeThriftTypIdSeqId(data []byte) (typeId thrift.TMessageType, seqId int32, err error) {
-	transport := NewTMemoryBufferWithBuf(data)
-	protocol := thrift.NewTBinaryProtocolTransport(transport)
 
-	_, typeId, seqId, err = protocol.ReadMessageBegin()
+	// 解码typeId
+	if len(data) < 4 {
+		err = thrift.NewTProtocolException(io.ErrUnexpectedEOF)
+		return
+	}
+	size := int32(binary.BigEndian.Uint32(data[0:4]))
+	typeId = thrift.TMessageType(size & 0x0ff)
+
+	// 解码name的长度，并且跳过name
+	if len(data) < 8 {
+		err = thrift.NewTProtocolException(io.ErrUnexpectedEOF)
+		return
+	}
+	size = int32(binary.BigEndian.Uint32(data[4:8]))
+	if len(data) < 12+int(size) {
+		err = thrift.NewTProtocolException(io.ErrUnexpectedEOF)
+		return
+	}
+
+	// 解码seqId
+	seqId = int32(binary.BigEndian.Uint32(data[8+size : 12+size]))
+
+	//	transport := NewTMemoryBufferWithBuf(data)
+	//	protocol := thrift.NewTBinaryProtocolTransport(transport)
+
+	//	_, typeId, seqId, err = protocol.ReadMessageBegin()
 	return
 }
