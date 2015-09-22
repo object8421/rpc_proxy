@@ -160,6 +160,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 			log.ErrorErrorf(err, "Write back Data Error: %v", err)
 			return err
 		}
+		log.Infof("Session+ Time: %.3fms", float64(microseconds()-r.Start)*0.001)
 		r.Recycle()
 	}
 	return nil
@@ -191,10 +192,13 @@ func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) 
 		log.Printf("HandleRequest: %s", string(request))
 	}
 	r := NewRequest(request, true)
-
 	// 增加统计
 	s.LastOpUnix = time.Now().Unix()
 	s.Ops++
+	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
+		HandlePingRequest(r) // 直接返回数据
+		return r, nil
+	}
 
 	// 交给Dispatch
 	// Router
