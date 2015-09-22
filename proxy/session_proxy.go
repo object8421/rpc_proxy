@@ -160,7 +160,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) error {
 			log.ErrorErrorf(err, "Write back Data Error: %v", err)
 			return err
 		}
-		log.Infof("Session+ Time: %.3fms", float64(microseconds()-r.Start)*0.001)
+		//		log.Infof("Session+ Time: %.3fms", float64(microseconds()-r.Start)*0.001)
 		r.Recycle()
 	}
 	return nil
