@@ -13,6 +13,16 @@ func HandlePingRequest(req *Request) {
 	req.Response.Data = req.Request.Data
 }
 
+func HandleProxyPingRequest(req *Request) {
+	transport := NewTMemoryBufferLen(30)
+	protocol := thrift.NewTBinaryProtocolTransport(transport)
+	protocol.WriteMessageBegin("ping", thrift.REPLY, req.Request.SeqId)
+	protocol.WriteMessageEnd()
+	protocol.Flush()
+
+	req.Response.Data = transport.Bytes()
+}
+
 func NewPingRequest() *Request {
 	// 构建thrift的Transport
 

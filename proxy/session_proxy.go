@@ -196,7 +196,7 @@ func (s *Session) handleRequest(request []byte, d Dispatcher) (*Request, error) 
 	s.LastOpUnix = time.Now().Unix()
 	s.Ops++
 	if r.Request.TypeId == MESSAGE_TYPE_HEART_BEAT {
-		HandlePingRequest(r) // 直接返回数据
+		HandleProxyPingRequest(r) // 直接返回数据
 		return r, nil
 	}
 
