@@ -4,6 +4,7 @@ package proxy
 
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
+	"git.chunyu.me/infra/rpc_proxy/gen-go/rpc_thrift/services"
 )
 
 //
@@ -17,6 +18,8 @@ func HandleProxyPingRequest(req *Request) {
 	transport := NewTMemoryBufferLen(30)
 	protocol := thrift.NewTBinaryProtocolTransport(transport)
 	protocol.WriteMessageBegin("ping", thrift.REPLY, req.Request.SeqId)
+	result := services.NewRpcServiceBasePingResult()
+	result.Write(protocol)
 	protocol.WriteMessageEnd()
 	protocol.Flush()
 
