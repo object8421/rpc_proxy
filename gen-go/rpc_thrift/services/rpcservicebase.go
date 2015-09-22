@@ -51,6 +51,33 @@ func (p *RpcServiceBaseClient) Ping() (err error) {
 	return p.recvPing()
 }
 
+func (p *RpcServiceBaseClient) Ping1() (err error) {
+	if err = p.sendPing1(); err != nil {
+		return
+	}
+	return p.recvPing()
+}
+func (p *RpcServiceBaseClient) sendPing1() (err error) {
+	oprot := p.OutputProtocol
+	if oprot == nil {
+		oprot = p.ProtocolFactory.GetProtocol(p.Transport)
+		p.OutputProtocol = oprot
+	}
+	p.SeqId++
+	// thrift.CALL --> MESSAGE_TYPE_HEART_BEAT
+	if err = oprot.WriteMessageBegin("ping", 20, p.SeqId); err != nil {
+		return
+	}
+	args := RpcServiceBasePingArgs{}
+	if err = args.Write(oprot); err != nil {
+		return
+	}
+	if err = oprot.WriteMessageEnd(); err != nil {
+		return
+	}
+	return oprot.Flush()
+}
+
 func (p *RpcServiceBaseClient) sendPing() (err error) {
 	oprot := p.OutputProtocol
 	if oprot == nil {
