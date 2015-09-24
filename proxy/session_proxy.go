@@ -4,15 +4,10 @@ package proxy
 
 import (
 	thrift "git.apache.org/thrift.git/lib/go/thrift"
-	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
-	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
 	"time"
 )
 
-//
-// 用于rpc proxy或者load balance用来管理Client的
-//
 type Session struct {
 	*TBufferedFramedTransport
 
@@ -20,10 +15,7 @@ type Session struct {
 	Ops           int64
 	LastOpUnix    int64
 	CreateUnix    int64
-
-	quit    bool
-	closed  atomic2.Bool
-	verbose bool
+	verbose       bool
 }
 
 // c： client <---> proxy之间的连接
@@ -48,122 +40,64 @@ func NewSessionSize(c thrift.TTransport, address string, verbose bool,
 }
 
 func (s *Session) Close() error {
-	s.closed.Set(true)
 	log.Printf(Red("Close Proxy Session"))
 	return s.TBufferedFramedTransport.Close()
 }
 
-func (s *Session) IsClosed() bool {
-	return s.closed.Get()
-}
-
+// Session是同步处理请求，因此没有必要搞多个
 func (s *Session) Serve(d Dispatcher, maxPipeline int) {
-
-	var errlist errors.ErrorList
-
-	// 已经交给Dispatch处理的Tasks, 在loopWriter中等待task的数据返回: task.Wait.Wait()
-	tasks := make(chan *Request, maxPipeline)
-	go func() {
-		if err := s.loopWriter(tasks); err != nil {
-			errlist.PushBack(err)
-		}
-
-		// 出现错误了，直接关闭Session
+	defer func() {
 		s.Close()
-		// 扔掉所有的Tasks
-		log.Warnf(Red("Session Closed, Abandon %d Tasks"), len(tasks))
-		for task := range tasks {
-			task.Recycle()
-		}
-		log.Warnf(Red("Session Server Over"))
+		log.Infof(Red("==> Session Over: %s, Total %d Ops"), s.RemoteAddress, s.Ops)
 	}()
 
-	// 从Client读取用户的请求，然后再交给Dispatcher来处理
-	if err := s.loopReader(tasks, d); err != nil {
-		errlist.PushBack(err)
-	}
-
-	close(tasks)
-
-	log.Infof(Red("==> Session Over: %s, Print Error List: %d Errors"),
-		s.RemoteAddress, errlist.Len())
-
-	// 只打印第一个Error
-	if err := errlist.First(); err != nil {
-		log.Infof("==> Session [%p] closed, Error = %v", s, err)
-	} else {
-		log.Infof("==> Session [%p] closed, Quit", s)
-	}
-
-	log.Info(Cyan("LoopReader Over, Session#Serve Over"))
-}
-
-// 从Client读取数据
-func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) error {
-	if d == nil {
-		return errors.New("nil dispatcher")
-	}
-
-	for !s.quit {
-		// client <--> rpc
-		// 从client读取frames
+	var r *Request
+	for true {
+		// 1. 读取请求
 		request, err := s.ReadFrame()
+		s.Ops += 1
+
+		// 读取出错，直接退出
 		if err != nil {
 			err1, ok := err.(thrift.TTransportException)
 			if !ok || err1.TypeId() != thrift.END_OF_FILE {
-				// 遇到EOF等错误，就直接结束loopReader
-				// 结束之前需要和后端的back_conn之间处理好关系?
 				log.ErrorErrorf(err, Red("ReadFrame Error: %v"), err)
 			}
-			return err
+			return
 		}
 
-		r, err := s.handleRequest(request, d)
+		// 2. 处理请求
+		r, err = s.handleRequest(request, d)
 		if err != nil {
-			return err
-		} else {
-			if s.verbose {
-				log.Info("Succeed Get Result")
-			}
-
-			// 将请求交给: tasks
-			// 该Request应该被有效地处理
-			tasks <- r
+			log.ErrorErrorf(err, Red("handleRequest Error: %v"), err)
+			return
 		}
-	}
-	return nil
-}
 
-func (s *Session) loopWriter(tasks <-chan *Request) error {
-	// Proxy: Session ---> Client
-	for r := range tasks {
-		// 1. 等待Request对应的Response
-		//    出错了如何处理呢?
+		// 3. 等待请求处理完毕
 		s.handleResponse(r)
 
-		// 2. 将结果写回给Client
+		// 4. 将结果写回给Client
 		if s.verbose {
-			log.Printf("[%s]Session#loopWriter --> client FrameSize: %d",
+			log.Debugf("[%s]Session#loopWriter --> client FrameSize: %d",
 				r.Service, len(r.Response.Data))
 		}
 
-		// r.Response.Data ---> Client
-		_, err := s.TBufferedFramedTransport.Write(r.Response.Data)
+		// 5. 将请求返回给Client, r.Response.Data ---> Client
+		_, err = s.TBufferedFramedTransport.Write(r.Response.Data)
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v", err)
-			return err
+			return
 		}
 
-		// 3. Flush
+		// 6. Flush
 		err = s.TBufferedFramedTransport.FlushBuffer(true) // len(tasks) == 0
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v", err)
-			return err
+			return
 		}
-		//		log.Infof("Session+ Time: %.3fms", float64(microseconds()-r.Start)*0.001)
+
 		r.Recycle()
 	}
-	return nil
 }
 
 //
@@ -176,9 +110,8 @@ func (s *Session) handleResponse(r *Request) {
 
 	// 将Err转换成为Exception
 	if r.Response.Err != nil {
-
 		r.Response.Data = GetThriftException(r, "proxy_session")
-		log.Printf(Magenta("---->Convert Error Back to Exception, Err: %v"), r.Response.Err)
+		log.Infof(Magenta("---->Convert Error Back to Exception, Err: %v"), r.Response.Err)
 	}
 
 	// 如何处理Data和Err呢?
