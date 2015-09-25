@@ -390,6 +390,9 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
 			bc.hbLastTime.Set(time.Now().Unix())
+			//			if req != nil {
+			//				log.Printf("HB RT: %.3fms", float64(microseconds()-req.Start)*0.001)
+			//			}
 			return nil
 		}
 

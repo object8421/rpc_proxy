@@ -7,7 +7,6 @@ import (
 	"git.chunyu.me/infra/rpc_proxy/utils/atomic2"
 	"git.chunyu.me/infra/rpc_proxy/utils/errors"
 	"git.chunyu.me/infra/rpc_proxy/utils/log"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -89,6 +88,7 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 		}
 	}()
 
+	// 用于等待for中的go func执行完毕
 	var wait sync.WaitGroup
 	for true {
 		// Reader不停地解码， 将Request
@@ -104,13 +104,17 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 			// 异步执行
 
 			r, _ := s.handleRequest(request, d)
-			if r.Request.TypeId != MESSAGE_TYPE_HEART_BEAT {
-				log.Debugf(Magenta("[%p] --> SeqId: %d, Goroutine: %d"), s, r.Request.SeqId, runtime.NumGoroutine())
-			}
+			//			if r.Request.TypeId != MESSAGE_TYPE_HEART_BEAT {
+			//				log.Debugf(Magenta("[%p] --> SeqId: %d, Goroutine: %d"), s, r.Request.SeqId, runtime.NumGoroutine())
+			//			}
 
 			// 数据请求完毕之后，将Request交给tasks, 然后再写回Client
 			tasks <- r
 			wait.Done()
+			//			if r.Request.TypeId != MESSAGE_TYPE_HEART_BEAT {
+			//				log.Printf("Time RT: %.3fms", float64(microseconds()-r.Start)*0.001)
+			//			}
+
 		}()
 	}
 	// 等待go func执行完毕
@@ -150,11 +154,11 @@ func (s *NonBlockSession) loopWriter(tasks <-chan *Request) error {
 
 		// 3. Flush
 		err = s.TBufferedFramedTransport.FlushBuffer(len(tasks) == 0) // len(tasks) == 0
-		if err != nil {
-			log.Debugf(Magenta("Write Back to Client/Proxy SeqId: %d, Error: %v"), r.Request.SeqId, err)
-		} else {
-			log.Debugf(Magenta("Write Back to Client/Proxy SeqId: %d"), r.Request.SeqId)
-		}
+		//		if err != nil {
+		//			log.Debugf(Magenta("Write Back to Client/Proxy SeqId: %d, Error: %v"), r.Request.SeqId, err)
+		//		} else {
+		//			log.Debugf(Magenta("Write Back to Client/Proxy SeqId: %d"), r.Request.SeqId)
+		//		}
 
 		if err != nil {
 			return err
@@ -202,7 +206,7 @@ func (s *NonBlockSession) handleRequest(request []byte, d Dispatcher) (*Request,
 		s.lastRequestTime.Set(time.Now().Unix())
 	}
 
-	log.Debugf("Before Dispatch, SeqId: %d", r.Request.SeqId)
+	//	log.Debugf("Before Dispatch, SeqId: %d", r.Request.SeqId)
 
 	// 交给Dispatch
 	return r, d.Dispatch(r)

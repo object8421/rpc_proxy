@@ -271,6 +271,7 @@ func (bc *BackendConnLB) flushRequests(err error) {
 // 配对 Request, resp, err
 // PARAM: resp []byte 为一帧完整的thrift数据包
 func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
+	//	log.Printf("#setResponse:  data: %v", data)
 	// 表示出现错误了
 	if data == nil {
 		log.Printf("No Data From Server, error: %v\n", err)
@@ -281,6 +282,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		// 解码错误，直接报错
 		if err != nil {
+			log.ErrorErrorf(err, "Decode SeqId Error: %v", err)
 			return err
 		}
 
@@ -293,10 +295,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 
 		// 找到对应的Request
 
-		req, ok := bc.seqNumRequestMap.Get(seqId)
-		if ok {
-			ok = bc.seqNumRequestMap.Remove(seqId)
-		}
+		req := bc.seqNumRequestMap.Pop(seqId)
 
 		// 如果是心跳，则OK
 		if typeId == MESSAGE_TYPE_HEART_BEAT {
@@ -304,7 +303,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 			return nil
 		}
 
-		if !ok {
+		if req == nil {
 			// return errors.New("Invalid Response")
 			return nil
 		}

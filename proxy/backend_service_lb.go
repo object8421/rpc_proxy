@@ -193,7 +193,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 
 	if len(s.activeConns) == 0 {
 		if s.verbose {
-			log.Printf(Cyan("[%s]ActiveConns Len 0"), s.serviceName)
+			log.Debugf(Cyan("[%s]ActiveConns Len 0"), s.serviceName)
 		}
 		backSocket = nil
 	} else {
@@ -203,7 +203,7 @@ func (s *BackServiceLB) nextBackendConn() *BackendConnLB {
 		backSocket = s.activeConns[s.currentConnIndex]
 		s.currentConnIndex++
 		if s.verbose {
-			log.Printf(Cyan("[%s]ActiveConns Len %d, CurrentIndex: %d"), s.serviceName,
+			log.Debugf(Cyan("[%s]ActiveConns Len %d, CurrentIndex: %d"), s.serviceName,
 				len(s.activeConns), s.currentConnIndex)
 		}
 	}
