@@ -74,8 +74,14 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	// 注册服务
 	evtExit := make(chan interface{})
+
+	// 初始状态为不上线
+	var state atomic2.Bool
+	state.Set(false)
+	stateChan := make(chan bool)
+
 	serviceEndpoint := RegisterService(p.serviceName, p.frontendAddr, p.lbServiceName,
-		p.topo, evtExit, p.config.WorkDir, p.config.CodeUrlVersion)
+		p.topo, evtExit, p.config.WorkDir, p.config.CodeUrlVersion, &state, stateChan)
 
 	//	var suideTime time.Time
 
@@ -110,6 +116,35 @@ func (p *ThriftLoadBalanceServer) Run() {
 
 	ch := make(chan thrift.TTransport, 4096)
 	defer close(ch)
+
+	// 等待后端服务起来
+	waitTicker := time.NewTicker(time.Second)
+
+	// 等待上线采用的策略:
+	// 1. 检测到有效的Worker注册之后，再等5s即可像zk注册; 避免了Worker没有连接上来，就有请求过来
+	// 2. 一旦注册之后，就不再使用该策略；避免服务故障时，lb频繁更新zk, 导致proxy等频繁读取zk
+START_WAIT:
+	for true {
+		select {
+		case <-waitTicker.C:
+			if p.backendService.Active() <= 0 {
+				log.Infof("Sleep Waiting for back Service to Start")
+				time.Sleep(time.Second)
+			} else {
+				// 停止: waitTicker, 再等等就继续了
+				waitTicker.Stop()
+				time.Sleep(time.Second * 5)
+				state.Set(true)
+				stateChan <- true
+				break START_WAIT
+			}
+		case <-exitSignal:
+			// 直接退出
+			transport.Interrupt()
+			transport.Close()
+			return
+		}
+	}
 
 	// 强制退出? TODO: Graceful退出
 	go func() {

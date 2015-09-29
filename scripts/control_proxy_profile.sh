@@ -41,7 +41,7 @@ function start() {
 		exit -1
     fi
     
-    nohup $app -c $conf -L $logfile --profile-addr=127.0.0.1:7171 &> $stdfile &
+    nohup $app -c $conf -L $logfile --profile-addr=60.29.249.103:7171 &> $stdfile &
     echo $! > $pidfile
     echo "$app started..., pid=$!"
 }
