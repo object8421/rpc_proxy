@@ -157,6 +157,8 @@ func (bc *BackendConnLB) loopWriter() error {
 			// 1. 对方挂了
 			// 2. 自己快要挂了，然后就不再发送心跳；没有了信条，就会超时
 			if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
+				// 强制关闭c
+				c.Close()
 				return errors.New("Worker HB timeout")
 			} else {
 				if bc.IsConnActive.Get() {
@@ -229,7 +231,7 @@ func (bc *BackendConnLB) loopReader(c *TBufferedFramedTransport) {
 			// 2. 连接异常关闭，数据不完整 --> io.ErrUnexpectedEOF
 			//
 			// rpc_server ---> backend_conn
-			frame, err := c.ReadFrame()
+			frame, err := c.ReadFrame() // 有可能被堵住
 
 			if err != nil {
 

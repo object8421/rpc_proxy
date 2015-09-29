@@ -74,7 +74,7 @@ func GetServiceIdentity(frontendAddr string) string {
 //
 func RegisterService(serviceName, frontendAddr, serviceId string,
 	topo *zk.Topology, evtExit chan interface{},
-	workDir string, codeUrlVerion string) *ServiceEndpoint {
+	workDir string, codeUrlVerion string, state *atomic2.Bool, stateChan chan bool) *ServiceEndpoint {
 
 	// 1. 准备数据
 	// 记录Service Endpoint的信息
@@ -90,7 +90,11 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 
 	// 为了保证Add是干净的，需要先删除，保证自己才是Owner
 	endpoint.DeleteServiceEndpoint(topo)
-	endpoint.AddServiceEndpoint(topo)
+
+	// 如果没有状态，或状态为true, 则上线
+	if state == nil || state.Get() {
+		endpoint.AddServiceEndpoint(topo)
+	}
 
 	go func() {
 
@@ -103,6 +107,12 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 				select {
 				case <-evtExit:
 					return
+				case <-stateChan:
+					// 如何状态变化(则重新注册)
+					endpoint.DeleteServiceEndpoint(topo)
+					if state == nil || state.Get() {
+						endpoint.AddServiceEndpoint(topo)
+					}
 				case e := <-evtbus:
 					event := e.(topozk.Event)
 					if event.State == topozk.StateExpired ||
@@ -110,7 +120,10 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 						// Session过期了，则需要删除之前的数据，
 						// 因为当前的session不是之前的数据的Owner
 						endpoint.DeleteServiceEndpoint(topo)
-						endpoint.AddServiceEndpoint(topo)
+
+						if state == nil || state.Get() {
+							endpoint.AddServiceEndpoint(topo)
+						}
 
 					}
 				}
@@ -171,10 +184,16 @@ func (p *ThriftRpcServer) Run() {
 
 	StartTicker(p.config.FalconClient, p.ServiceName)
 
+	// 初始状态为不上线
+	var state atomic2.Bool
+	state.Set(false)
+	stateChan := make(chan bool)
+
 	// 注册服务
 	evtExit := make(chan interface{})
 	endpoint := RegisterService(p.ServiceName, p.FrontendAddr, lbServiceName,
-		p.Topo, evtExit, p.config.WorkDir, p.config.CodeUrlVersion)
+		p.Topo, evtExit, p.config.WorkDir, p.config.CodeUrlVersion,
+		&state, stateChan)
 
 	// 3. 读取"前端"的配置
 	var transport thrift.TServerTransport
@@ -250,6 +269,10 @@ func (p *ThriftRpcServer) Run() {
 			go x.Serve(p, 1000)
 		}
 	}()
+
+	// 准备上线服务
+	state.Set(true)
+	stateChan <- true
 
 	// Accept什么时候出错，出错之后如何处理呢?
 	for {
