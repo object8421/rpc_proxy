@@ -155,7 +155,7 @@ func (bc *BackendConnLB) loopWriter() error {
 		case <-bc.hbTicker.C:
 			// 两种情况下，心跳会超时
 			// 1. 对方挂了
-			// 2. 自己快要挂了，然后就不再发送心跳；没有了信条，就会超时
+			// 2. 自己快要挂了，然后就不再发送心跳；没有了心跳，就会超时
 			if time.Now().Unix()-bc.hbLastTime.Get() > HB_TIMEOUT {
 				// 强制关闭c
 				c.Close()
