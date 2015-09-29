@@ -120,6 +120,9 @@ func (p *ThriftLoadBalanceServer) Run() {
 	// 等待后端服务起来
 	waitTicker := time.NewTicker(time.Second)
 
+	// 等待上线采用的策略:
+	// 1. 检测到有效的Worker注册之后，再等5s即可像zk注册; 避免了Worker没有连接上来，就有请求过来
+	// 2. 一旦注册之后，就不再使用该策略；避免服务故障时，lb频繁更新zk, 导致proxy等频繁读取zk
 START_WAIT:
 	for true {
 		select {
