@@ -80,6 +80,11 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 	// 记录Service Endpoint的信息
 	servicePath := topo.ProductServicePath(serviceName)
 
+	// 确保东西存在
+	if !topo.Exist(servicePath) {
+		topo.CreateDir(servicePath)
+	}
+
 	// 用来从zookeeper获取事件
 	evtbus := make(chan interface{})
 
