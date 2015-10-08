@@ -131,11 +131,6 @@ START_WAIT:
 				log.Infof("Sleep Waiting for back Service to Start")
 				time.Sleep(time.Second)
 			} else {
-				// 停止: waitTicker, 再等等就继续了
-				waitTicker.Stop()
-				time.Sleep(time.Second * 5)
-				state.Set(true)
-				stateChan <- true
 				break START_WAIT
 			}
 		case <-exitSignal:
@@ -145,6 +140,15 @@ START_WAIT:
 			return
 		}
 	}
+
+	log.Infof("Stop Waiting")
+	// 停止: waitTicker, 再等等就继续了
+	waitTicker.Stop()
+	time.Sleep(time.Second * 5)
+
+	log.Infof("Begin to Reg To Zk...")
+	state.Set(true)
+	stateChan <- true
 
 	// 强制退出? TODO: Graceful退出
 	go func() {

@@ -76,7 +76,7 @@ func (bc *BackendConnLB) MarkConnActiveFalse() {
 
 // run之间 transport刚刚建立，因此服务的可靠性比较高
 func (bc *BackendConnLB) Run() {
-	log.Printf(Green("[%s]Add New BackendConnLB: %s\n"), bc.serviceName, bc.address)
+	log.Printf(Green("[%s]Add New BackendConnLB: %s"), bc.serviceName, bc.address)
 
 	// 1. 首先BackendConn将当前 input中的数据写到后端服务中
 	err := bc.loopWriter()
@@ -85,7 +85,7 @@ func (bc *BackendConnLB) Run() {
 	//    可能出现异常，也可能正常退出(反正不干活了)
 	bc.MarkConnActiveFalse()
 
-	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s\n"), bc.serviceName, bc.address)
+	log.Printf(Red("[%s]Remove Faild BackendConnLB: %s"), bc.serviceName, bc.address)
 
 	if err == nil {
 		// bc.input被关闭了，应该就没有 Request 了
