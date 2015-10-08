@@ -81,7 +81,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 	servicePath := topo.ProductServicePath(serviceName)
 
 	// 确保东西存在
-	if !topo.Exist(servicePath) {
+	if ok, _ := topo.Exist(servicePath); !ok {
 		topo.CreateDir(servicePath)
 	}
 
