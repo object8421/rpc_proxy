@@ -131,7 +131,7 @@ func RegisterService(serviceName, frontendAddr, serviceId string,
 			} else {
 				// 如果添加Watch失败，则等待退出，或等待timer接触，进行下一次尝试
 				timer := time.NewTimer(time.Second * time.Duration(10))
-				log.Infof("Reg Failed, Wait 10 seconds....")
+				log.ErrorErrorf(err, "Reg Failed, Wait 10 seconds...., %v", err)
 				select {
 				case <-evtExit:
 					return
