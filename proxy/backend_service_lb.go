@@ -148,12 +148,16 @@ func (s *BackServiceLB) run() {
 					backendAddr = socket.Addr().String()
 				}
 
+				// 有可能连接刚刚创建，就立马挂了
 				conn := NewBackendConnLB(trans, s.serviceName, backendAddr, s, s.verbose)
 
 				// 因为连接刚刚建立，可靠性还是挺高的，因此直接加入到列表中
 				s.activeConnsLock.Lock()
-				conn.Index = len(s.activeConns)
-				s.activeConns = append(s.activeConns, conn)
+				// 可能在这里就出现 IsConnActive 为False的情况，如果出现了，就不再加入activeConns
+				if conn.IsConnActive.Get() {
+					conn.Index = len(s.activeConns)
+					s.activeConns = append(s.activeConns, conn)
+				}
 				s.activeConnsLock.Unlock()
 
 				log.Printf(Green("%s --> %d workers"), s.serviceName, conn.Index)
