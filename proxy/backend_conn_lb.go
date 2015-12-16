@@ -49,15 +49,18 @@ func NewBackendConnLB(transport thrift.TTransport, serviceName string,
 	verbose bool) *BackendConnLB {
 	requestMap, _ := NewRequestMap(4096)
 	bc := &BackendConnLB{
-		transport:        transport,
-		address:          address,
-		serviceName:      serviceName,
-		input:            make(chan *Request, 1024),
+		transport:   transport,
+		address:     address,
+		serviceName: serviceName,
+		input:       make(chan *Request, 1024),
+
 		seqNumRequestMap: requestMap,
 		currentSeqId:     BACKEND_CONN_MIN_SEQ_ID,
-		Index:            INVALID_ARRAY_INDEX,
-		delegate:         delegate,
-		verbose:          verbose,
+
+		Index: INVALID_ARRAY_INDEX, // 用于记录: BackendConnLB在数组中的位置
+
+		delegate: delegate,
+		verbose:  verbose,
 	}
 	bc.IsConnActive.Set(true)
 	go bc.Run()

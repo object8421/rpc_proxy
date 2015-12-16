@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/stretchr/testify/assert"
-
 	"testing"
 )
 

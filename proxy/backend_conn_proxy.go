@@ -52,13 +52,16 @@ func NewBackendConn(addr string, delegate *BackService, service string, verbose 
 	backendConnIndexMutex.Lock()
 	log.Infof("Create Backend Conn with index: %d", backendConnIndex)
 
+	// 主要是区分不同的: backendConnIndex
 	minSeqId = backendConnIndex
+
 	backendConnIndex += 1
 	if backendConnIndex > 100 {
 		backendConnIndex = 0
 	}
 	backendConnIndexMutex.Unlock()
 
+	// BACKEND_CONN_MAX_SEQ_ID = 1000000
 	minSeqId = minSeqId * BACKEND_CONN_MAX_SEQ_ID
 
 	bc := &BackendConn{
@@ -66,12 +69,14 @@ func NewBackendConn(addr string, delegate *BackService, service string, verbose 
 		service:          service,
 		input:            make(chan *Request, 1024),
 		seqNumRequestMap: requestMap,
-		currentSeqId:     minSeqId,
-		minSeqId:         minSeqId,
-		maxSeqId:         minSeqId + BACKEND_CONN_MAX_SEQ_ID - 1,
-		Index:            INVALID_ARRAY_INDEX,
-		delegate:         delegate,
-		verbose:          verbose,
+
+		currentSeqId: minSeqId,
+		minSeqId:     minSeqId,
+		maxSeqId:     minSeqId + BACKEND_CONN_MAX_SEQ_ID - 1,
+		Index:        INVALID_ARRAY_INDEX,
+
+		delegate: delegate,
+		verbose:  verbose,
 	}
 	go bc.Run()
 	return bc
@@ -134,12 +139,12 @@ func (bc *BackendConn) Addr() string {
 // 2. 正常的请求
 func (bc *BackendConn) PushBack(r *Request) {
 	if bc.IsConnActive.Get() && !bc.IsMarkOffline.Get() {
+		// 1. 处于Active状态，并且没有标记下线, 则将 Request 添加到 input 中
 		r.Wait.Add(1)
 		bc.input <- r
 	} else {
-
+		// 2. 直接报错（返回)
 		r.Response.Err = errors.New(fmt.Sprintf("[%s] Request Assigned to inactive BackendConn", bc.service))
-
 		log.Warn(Magenta("Push Request To Inactive Backend"))
 	}
 }
@@ -322,7 +327,9 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport, connOver *sync.Wa
 
 		lastTime := time.Now().Unix()
 		// Active状态，或者最近5s有数据返回
-		for bc.IsConnActive.Get() || (time.Now().Unix()-lastTime > 5) {
+		// 设计理由：服务在线，则请求正常发送；
+		//         服务下线后，则期待后端服务的数据继续返回(最多等待5s)
+		for bc.IsConnActive.Get() || (time.Now().Unix()-lastTime < 5) {
 			// 读取来自后端服务的数据，通过 setResponse 转交给 前端
 			// client <---> proxy <-----> backend_conn <---> rpc_server
 			// ReadFrame需要有一个度? 如果碰到EOF该如何处理呢?
@@ -331,7 +338,6 @@ func (bc *BackendConn) loopReader(c *TBufferedFramedTransport, connOver *sync.Wa
 			//
 			resp, err := c.ReadFrame()
 			lastTime = time.Now().Unix()
-
 			if err != nil {
 				err1, ok := err.(thrift.TTransportException)
 				if !ok || err1.TypeId() != thrift.END_OF_FILE {
