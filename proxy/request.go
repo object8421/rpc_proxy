@@ -129,7 +129,7 @@ func (r *Request) ReplaceSeqId(newSeq int32) {
 
 func (r *Request) Recycle() {
 	var sliceId uintptr = 0
-
+	// 将其中的Buffer归还(returnSlice)
 	if r.Request.DataOrig != nil {
 		returnSlice(r.Request.DataOrig)
 		sliceId = getSliceId(r.Request.DataOrig)

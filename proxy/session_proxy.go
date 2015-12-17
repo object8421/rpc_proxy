@@ -63,12 +63,14 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 			if !ok || err1.TypeId() != thrift.END_OF_FILE {
 				log.ErrorErrorf(err, Red("ReadFrame Error: %v"), err)
 			}
+			r.Recycle()
 			return
 		}
 
 		// 2. 处理请求
 		r, err = s.handleRequest(request, d)
 		if err != nil {
+			r.Recycle() // 重置: Request
 			log.ErrorErrorf(err, Red("handleRequest Error: %v"), err)
 			return
 		}
@@ -84,6 +86,8 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 
 		// 5. 将请求返回给Client, r.Response.Data ---> Client
 		_, err = s.TBufferedFramedTransport.Write(r.Response.Data)
+		r.Recycle() // 重置: Request
+
 		if err != nil {
 			log.ErrorErrorf(err, "Write back Data Error: %v", err)
 			return
@@ -96,7 +100,7 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 			return
 		}
 
-		r.Recycle()
+		// r.Recycle()
 	}
 }
 
