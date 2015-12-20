@@ -378,7 +378,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
-		typeId, seqId, err := DecodeThriftTypIdSeqId(data)
+		typeId, method, seqId, err := DecodeThriftTypIdSeqId(data)
 		//		if err != nil {
 		//			log.Debugf("SeqId: %d, Decoded, error: %v", seqId, err)
 		//		} else {
@@ -405,12 +405,19 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		if req == nil {
 			// return errors.New("Invalid Response")
 			// 由于是异步返回，因此回来找不到也正常
-			log.Debugf("#setResponse not found, seqId: %d", seqId)
+			log.Errorf("#setResponse not found, seqId: %d", seqId)
 			return nil
 		} else {
-			//			log.Debugf("[%s]Data From Server, seqId: %d, Request: %d", req.Service, seqId, req.Request.SeqId)
+
+			if req.Response.SeqId != seqId {
+				log.Errorf("Data From Server, SeqId not match, Ex: %d, Ret: %d", req.Request.SeqId, seqId)
+			}
 			r = req
 			r.Response.TypeId = typeId
+			if req.Request.Name != method {
+				data = nil
+				err = req.NewInvalidResponseError(method, "conn_proxy")
+			}
 		}
 	}
 

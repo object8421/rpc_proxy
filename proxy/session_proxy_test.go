@@ -26,7 +26,7 @@ func (p *fakeServer) Dispatch(r *Request) error {
 		time.Sleep(time.Millisecond)
 		r.Response.Data = []byte(string(r.Request.Data))
 
-		typeId, seqId, _ := DecodeThriftTypIdSeqId(r.Response.Data)
+		typeId, _, seqId, _ := DecodeThriftTypIdSeqId(r.Response.Data)
 		log.Printf(Green("TypeId: %d, SeqId: %d\n"), typeId, seqId)
 		r.Wait.Done()
 	}()

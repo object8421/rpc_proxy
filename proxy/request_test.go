@@ -46,14 +46,14 @@ func TestRequest(t *testing.T) {
 	var newSeqId int32 = 10
 	r.ReplaceSeqId(newSeqId)
 
-	_, seqId1, _ := DecodeThriftTypIdSeqId(r.Request.Data)
+	_, _, seqId1, _ := DecodeThriftTypIdSeqId(r.Request.Data)
 	assert.Equal(t, newSeqId, seqId1) // r.Request.Data中的id被替换成功
 
 	r.Response.Data = r.Request.Data
 	r.RestoreSeqId()
 
 	// 恢复正常
-	_, seqId2, _ := DecodeThriftTypIdSeqId(r.Response.Data)
+	_, _, seqId2, _ := DecodeThriftTypIdSeqId(r.Response.Data)
 
 	//	fmt.Printf("Reqeust SeqId: %d, %d\n", r.Request.SeqId, seqId2)
 	assert.Equal(t, 0, int(seqId2))

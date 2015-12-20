@@ -72,6 +72,11 @@ func (r *Request) NewTimeoutError() error {
 		r.Service, r.Request.Name, r.Response.SeqId))
 }
 
+func (r *Request) NewInvalidResponseError(method string, module string) error {
+	return errors.New(fmt.Sprintf("[%s]Invalid Response Exception, %s.%s.%d, Method Ret: %s",
+		module, r.Service, r.Request.Name, r.Response.SeqId, method))
+}
+
 //
 // 从Request.Data中读取出 Request的Name, TypeId, SeqId
 // RequestName可能和thrift package中的name不一致，Service部分从Name中剔除
@@ -170,7 +175,7 @@ func (r *Request) RestoreSeqId() {
 //
 // 给定thrift Message, 解码出: typeId, seqId
 //
-func DecodeThriftTypIdSeqId(data []byte) (typeId thrift.TMessageType, seqId int32, err error) {
+func DecodeThriftTypIdSeqId(data []byte) (typeId thrift.TMessageType, method string, seqId int32, err error) {
 
 	// 解码typeId
 	if len(data) < 4 {
@@ -191,6 +196,7 @@ func DecodeThriftTypIdSeqId(data []byte) (typeId thrift.TMessageType, seqId int3
 		return
 	}
 
+	method = string(data[8 : 8+size])
 	// 解码seqId
 	seqId = int32(binary.BigEndian.Uint32(data[8+size : 12+size]))
 
