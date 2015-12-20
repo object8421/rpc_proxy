@@ -72,9 +72,9 @@ func (r *Request) NewTimeoutError() error {
 		r.Service, r.Request.Name, r.Response.SeqId))
 }
 
-func (r *Request) NewInvalidResponseError(method string) error {
-	return errors.New(fmt.Sprintf("Invalid Response Exception, %s.%s.%d, Method Ret: %s",
-		r.Service, r.Request.Name, r.Response.SeqId, method))
+func (r *Request) NewInvalidResponseError(method string, module string) error {
+	return errors.New(fmt.Sprintf("[%s]Invalid Response Exception, %s.%s.%d, Method Ret: %s",
+		module, r.Service, r.Request.Name, r.Response.SeqId, method))
 }
 
 //

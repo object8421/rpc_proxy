@@ -309,16 +309,18 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		}
 
 		if req == nil {
-			log.Debugf("#setResponse not found, seqId: %d", seqId)
+			log.Errorf("#setResponse not found, seqId: %d", seqId)
 			return nil
 		} else {
 
-			//		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
+			if req.Response.SeqId != seqId {
+				log.Errorf("Data From Server, SeqId not match, Ex: %d, Ret: %d", req.Request.SeqId, seqId)
+			}
 			r = req
 			r.Response.TypeId = typeId
 			if req.Request.Name != method {
 				data = nil
-				err = req.NewInvalidResponseError(method)
+				err = req.NewInvalidResponseError(method, "conn_lb")
 			}
 		}
 	}
