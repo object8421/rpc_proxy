@@ -70,9 +70,9 @@ func (s *Session) Serve(d Dispatcher, maxPipeline int) {
 		// 2. 处理请求
 		r, err = s.handleRequest(request, d)
 		if err != nil {
-			r.Recycle() // 重置: Request
+			// r.Recycle() // 出错之后也要主动返回数据
 			log.ErrorErrorf(err, Red("handleRequest Error: %v"), err)
-			return
+			r.Response.Err = err
 		}
 
 		// 3. 等待请求处理完毕

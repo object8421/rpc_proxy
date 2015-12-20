@@ -283,7 +283,7 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
-		typeId, seqId, err := DecodeThriftTypIdSeqId(data)
+		typeId, method, seqId, err := DecodeThriftTypIdSeqId(data)
 
 		// 解码错误，直接报错
 		if err != nil {
@@ -309,13 +309,18 @@ func (bc *BackendConnLB) setResponse(r *Request, data []byte, err error) error {
 		}
 
 		if req == nil {
-			// return errors.New("Invalid Response")
+			log.Debugf("#setResponse not found, seqId: %d", seqId)
 			return nil
-		}
+		} else {
 
-		//		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
-		r = req
-		r.Response.TypeId = typeId
+			//		log.Printf("Data From Server, seqId: %d, Request: %d\n", seqId, req.Request.SeqId)
+			r = req
+			r.Response.TypeId = typeId
+			if req.Request.Name != method {
+				data = nil
+				err = req.NewInvalidResponseError(method)
+			}
+		}
 	}
 
 	r.Response.Data, r.Response.Err = data, err

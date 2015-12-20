@@ -164,7 +164,7 @@ func (p *ThriftRpcServer) Dispatch(r *Request) error {
 
 	r.Response.Data = transport.Bytes()
 
-	_, seqId, _ := DecodeThriftTypIdSeqId(r.Response.Data)
+	_, _, seqId, _ := DecodeThriftTypIdSeqId(r.Response.Data)
 
 	log.Debugf("SeqId: %d vs. %d, Dispatch Over", r.Request.SeqId, seqId)
 	//	// 如果transport重新分配了内存，则立即归还slice

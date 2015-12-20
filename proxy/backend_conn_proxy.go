@@ -378,7 +378,7 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 		r.Response.Err = err
 	} else {
 		// 从resp中读取基本的信息
-		typeId, seqId, err := DecodeThriftTypIdSeqId(data)
+		typeId, method, seqId, err := DecodeThriftTypIdSeqId(data)
 		//		if err != nil {
 		//			log.Debugf("SeqId: %d, Decoded, error: %v", seqId, err)
 		//		} else {
@@ -411,6 +411,10 @@ func (bc *BackendConn) setResponse(r *Request, data []byte, err error) error {
 			//			log.Debugf("[%s]Data From Server, seqId: %d, Request: %d", req.Service, seqId, req.Request.SeqId)
 			r = req
 			r.Response.TypeId = typeId
+			if req.Request.Name != method {
+				data = nil
+				err = req.NewInvalidResponseError(method)
+			}
 		}
 	}
 
