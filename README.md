@@ -143,9 +143,8 @@ s.run()
 ![architecture](doc/rpc_architecture.jpg)
 ## 运维部署
 * 编译:
-	* go build git.chunyu.me/infra/rpc_proxy/cmd/rpc_lb.go
-	* go build git.chunyu.me/infra/rpc_proxy/cmd/rpc_proxy.go
-	* scp rpc_* node:/usr/local/bin/
-	* sudo cp rpc_* /usr/local/bin/
+	* go build git.chunyu.me/infra/rpc_proxy/cmds/rpc_lb.go
+	* go build git.chunyu.me/infra/rpc_proxy/cmds/rpc_proxy.go
+	* scp rpc_* node:/usr/local/rpc_proxy/bin/
+	* sudo cp rpc_* /usr/local/rpc_proxy/bin/
 	* 然后control_proxy.sh脚本和control_lb.sh脚本也需要部署在合适的地方
-
