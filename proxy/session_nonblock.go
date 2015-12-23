@@ -101,7 +101,7 @@ func (s *NonBlockSession) Serve(d Dispatcher, maxPipeline int) {
 
 		wait.Add(1)
 		go func() {
-			// 异步执行
+			// 异步执行(直接通过goroutine来调度，因为: SessionNonBlock中的不同的Request相互独立)
 
 			r, _ := s.handleRequest(request, d)
 			//			if r.Request.TypeId != MESSAGE_TYPE_HEART_BEAT {

@@ -65,16 +65,16 @@ func NewRequest(data []byte, serviceInReq bool) *Request {
 }
 
 //
-// 利用自身信息生成 timeout Error
+// 利用自身信息生成 timeout Error(注意: 其中的SeqId必须为r.Request.SeqId(它不是从后台返回，不会进行SeqId的replace)
 //
 func (r *Request) NewTimeoutError() error {
 	return errors.New(fmt.Sprintf("Timeout Exception, %s.%s.%d",
-		r.Service, r.Request.Name, r.Response.SeqId))
+		r.Service, r.Request.Name, r.Request.SeqId))
 }
 
 func (r *Request) NewInvalidResponseError(method string, module string) error {
 	return errors.New(fmt.Sprintf("[%s]Invalid Response Exception, %s.%s.%d, Method Ret: %s",
-		module, r.Service, r.Request.Name, r.Response.SeqId, method))
+		module, r.Service, r.Request.Name, r.Request.SeqId, method))
 }
 
 //
